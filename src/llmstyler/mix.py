@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from llmstyler.hub import upload_folder
+from llmstyler.hub import preflight_upload, upload_folder
 from llmstyler.io import read_yaml, write_json, write_jsonl
 from llmstyler.standards import (
     artifact_version,
@@ -144,14 +144,28 @@ def write_mix_artifacts(
 
 def build_mix(config_path: str | Path, *, push: bool | None = None) -> None:
     config = read_yaml(config_path)
-    rows = collect_mix(config)
-    write_mix_artifacts(config, rows, config_path=config_path)
     output = config["output"]
     should_push = output.get("push_to_hub", False) if push is None else push
+    hub_repo_id = None
+    if should_push:
+        hub = output["hub"]
+        hub_repo_id = standard_repo_id(
+            hub, fallback_name=config["id"], version=artifact_version(config)
+        )
+        preflight_upload(
+            repo_id=hub_repo_id,
+            repo_type="dataset",
+            private=bool(hub.get("private", False)),
+        )
+
+    rows = collect_mix(config)
+    write_mix_artifacts(config, rows, config_path=config_path)
     if should_push:
         hub = output["hub"]
         upload_folder(
-            repo_id=standard_repo_id(hub, fallback_name=config["id"], version=artifact_version(config)),
+            repo_id=hub_repo_id or standard_repo_id(
+                hub, fallback_name=config["id"], version=artifact_version(config)
+            ),
             repo_type="dataset",
             folder_path=output["dir"],
             private=bool(hub.get("private", False)),

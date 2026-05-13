@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from llmstyler.hub import upload_folder
+from llmstyler.hub import preflight_upload, upload_folder
 from llmstyler.io import (
     append_jsonl,
     deep_copy_json,
@@ -353,6 +353,17 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
         version=version,
         required=False,
     )
+    should_push = output.get("push_to_hub", False) if push is None else push
+    if should_push and not estimate_only:
+        hub = output["hub"]
+        preflight_upload(
+            repo_id=standard_repo_id(
+                hub, fallback_name=f"{style['id']}-dataset", version=version
+            ),
+            repo_type="dataset",
+            private=bool(hub.get("private", False)),
+        )
+
     rows = load_source_rows(dataset)
     row_indexes = selected_row_indexes(rows, dataset.get("sample"), int(config.get("seed", 3407)))
     targets = iter_targets(rows, row_indexes, style)
@@ -404,7 +415,6 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
         styled_dataset_card(config=config, manifest=manifest, repo_id=hub_repo_id),
         encoding="utf-8",
     )
-    should_push = output.get("push_to_hub", False) if push is None else push
     if should_push:
         hub = output["hub"]
         upload_folder(

@@ -57,7 +57,9 @@ runbook runs/qwen25_3b_trump/train.py \
 - `OPENROUTER_API_KEY` is required for `llmstyler restyle` unless using
   `--estimate-only`.
 - `HF_TOKEN`, or an authenticated Hugging Face CLI session, is required when
-  pushing datasets or model artifacts.
+  pushing datasets or model artifacts. Commands with `--push-to-hub` preflight
+  Hugging Face auth and repository creation before running expensive generation
+  work.
 - Remote training expects Modal/Runbook secrets named `huggingface-secret` and
   optionally `wandb-secret`.
 - Generated local artifacts are ignored by git: `datasets/`, `runs/`, and
