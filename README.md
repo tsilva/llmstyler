@@ -10,9 +10,9 @@ configs, samples chat rows from Hugging Face datasets, rewrites selected
 assistant responses through OpenRouter, and generates Runbook training files for
 Unsloth QLoRA jobs.
 
-The main workflow is: build a reusable base mix, restyle the marked rows, create
-a training runbook, then publish versioned Hugging Face datasets and model
-exports.
+The main workflow is: build a reusable base mix, restyle the marked rows, then
+launch a Runbook training step that publishes versioned Hugging Face datasets and
+model exports.
 
 ## Install
 
@@ -34,32 +34,46 @@ llmstyler --help
 
 ```bash
 llmstyler build-mix configs/base_mixes/smoltalk_style_mix.yaml
-llmstyler build-mix configs/base_mixes/smoltalk_style_mix.yaml --push-to-hub
 
 llmstyler restyle configs/styles/trump_public_speaking.yaml --estimate-only
 llmstyler restyle configs/styles/trump_public_speaking.yaml
-llmstyler restyle configs/styles/trump_public_speaking.yaml --push-to-hub
 
-llmstyler make-runbook configs/train/qwen25_3b_trump.yaml
-runbook runs/qwen25_3b_trump/train.py \
-  --gpu A10 \
-  --secret wandb-secret \
-  --secret huggingface-secret \
-  --timeout 14400 \
-  --output runs/qwen25_3b_trump/train.ipynb
+llmstyler train-style configs/pipelines/trump.yaml
+llmstyler train-style configs/pipelines/trump.yaml training.num_epochs=1 exports.onnx.enabled=false
+llmstyler train-style configs/pipelines/trump.yaml --dry-run training.num_epochs=1
+llmstyler train-style configs/pipelines/trump.yaml --force
+
+llmstyler runstep configs/train/qwen25_3b_trump.yaml
+llmstyler runstep configs/train/qwen25_3b_trump.yaml --no-run
 ```
 
 ## Notes
 
 - Python 3.11 or newer is required.
-- Example configs live under `configs/base_mixes/`, `configs/styles/`, and
-  `configs/train/`.
+- Example configs live under `configs/pipelines/`, `configs/base_mixes/`,
+  `configs/styles/`, and `configs/train/`.
 - `OPENROUTER_API_KEY` is required for `llmstyler restyle` unless using
   `--estimate-only`.
-- `HF_TOKEN`, or an authenticated Hugging Face CLI session, is required when
-  pushing datasets or model artifacts. Commands with `--push-to-hub` preflight
-  Hugging Face auth and repository creation before running expensive generation
-  work.
+- `llmstyler train-style` composes a full pipeline config with OmegaConf, so any
+  nested value can be overridden from the CLI with dotlist syntax such as
+  `owner=my-hf-org`, `model.base_model=...`, `training.num_epochs=1`, or
+  `exports.onnx.enabled=false`.
+- `llmstyler train-style` records per-step hashes in
+  `runs/<pipeline-id>/pipeline/status.json`. A step is skipped when its resolved
+  config hash is unchanged and its expected artifacts still exist. Use `--force`
+  to rerun everything.
+- `HF_TOKEN`, or an authenticated Hugging Face CLI session, is required because
+  dataset and model artifact publishing is enabled by default. Pass
+  `--no-push-to-hub` to dataset commands for local-only runs. Publishing commands
+  preflight Hugging Face auth and repository creation before running expensive
+  generation work.
+- Hub uploads are public by default. Set `hub.private: true` in a dataset config
+  only when the target repository should be private.
+- `llmstyler runstep` writes the generated Runbook files and launches `runbook`
+  with the GPU, timeout, output notebook path, and secrets from the training
+  config. Use `--no-run` to generate files without launching remote training.
+- The `runbook` CLI must be installed before launching a runstep. Install it
+  from `https://github.com/tsilva/runbook`.
 - Remote training expects Modal/Runbook secrets named `huggingface-secret` and
   optionally `wandb-secret`.
 - Generated local artifacts are ignored by git: `datasets/`, `runs/`, and

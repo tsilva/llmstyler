@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -398,7 +400,53 @@ def requirements_yaml(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def make_runbook(config_path: str | Path, output_dir: str | Path | None = None) -> None:
+def runbook_command(
+    config: dict[str, Any],
+    notebook_path: Path,
+    run_dir: Path,
+    run_output: str | Path | None = None,
+) -> list[str]:
+    runtime = config.get("runbook", {}).get("runtime", {})
+    modal = config.get("runbook", {}).get("modal", {})
+    output_path = Path(run_output) if run_output is not None else run_dir / "train.ipynb"
+
+    command = ["runbook", str(notebook_path)]
+    gpu = runtime.get("gpu")
+    if gpu:
+        command.extend(["--gpu", str(gpu)])
+    for secret in modal.get("secrets", []):
+        command.extend(["--secret", str(secret)])
+    timeout = runtime.get("timeout")
+    if timeout:
+        command.extend(["--timeout", str(timeout)])
+    command.extend(["--output", str(output_path)])
+    return command
+
+
+def run_generated_runbook(
+    config: dict[str, Any],
+    notebook_path: Path,
+    run_dir: Path,
+    run_output: str | Path | None = None,
+) -> None:
+    if shutil.which("runbook") is None:
+        raise RuntimeError(
+            "runbook CLI is required to launch training. Install it first from "
+            "https://github.com/tsilva/runbook, or rerun with --no-run to only generate "
+            "the training files."
+        )
+    command = runbook_command(config, notebook_path, run_dir, run_output=run_output)
+    print("Running " + " ".join(command))
+    subprocess.run(command, check=True)
+
+
+def make_runbook(
+    config_path: str | Path,
+    output_dir: str | Path | None = None,
+    *,
+    run: bool = True,
+    run_output: str | Path | None = None,
+) -> None:
     config = read_yaml(config_path)
     run_dir = Path(output_dir or config.get("runbook", {}).get("output_dir", f"runs/{config['id']}"))
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -411,3 +459,5 @@ def make_runbook(config_path: str | Path, output_dir: str | Path | None = None) 
     )
     print(f"Wrote {notebook_path}")
     print(f"Wrote {requirements_path}")
+    if run:
+        run_generated_runbook(config, notebook_path, run_dir, run_output=run_output)

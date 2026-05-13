@@ -3,6 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def repo_url(repo_id: str, repo_type: str) -> str:
+    path_prefix = "" if repo_type == "model" else f"{repo_type}s/"
+    return f"https://huggingface.co/{path_prefix}{repo_id}"
+
+
 def _api():
     try:
         from huggingface_hub import HfApi
@@ -46,7 +51,7 @@ def upload_folder(
     folder_path: str | Path,
     private: bool = False,
     commit_message: str = "Upload llmstyler artifact",
-) -> None:
+) -> str:
     api = _api()
     api.create_repo(repo_id=repo_id, repo_type=repo_type, private=private, exist_ok=True)
     api.upload_folder(
@@ -55,3 +60,4 @@ def upload_folder(
         folder_path=str(folder_path),
         commit_message=commit_message,
     )
+    return repo_url(repo_id, repo_type)

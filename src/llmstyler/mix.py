@@ -145,7 +145,7 @@ def write_mix_artifacts(
 def build_mix(config_path: str | Path, *, push: bool | None = None) -> None:
     config = read_yaml(config_path)
     output = config["output"]
-    should_push = output.get("push_to_hub", False) if push is None else push
+    should_push = output.get("push_to_hub", True) if push is None else push
     hub_repo_id = None
     if should_push:
         hub = output["hub"]
@@ -162,7 +162,7 @@ def build_mix(config_path: str | Path, *, push: bool | None = None) -> None:
     write_mix_artifacts(config, rows, config_path=config_path)
     if should_push:
         hub = output["hub"]
-        upload_folder(
+        upload_url = upload_folder(
             repo_id=hub_repo_id or standard_repo_id(
                 hub, fallback_name=config["id"], version=artifact_version(config)
             ),
@@ -171,3 +171,4 @@ def build_mix(config_path: str | Path, *, push: bool | None = None) -> None:
             private=bool(hub.get("private", False)),
             commit_message=hub.get("commit_message", "Upload llmstyler base mix dataset"),
         )
+        print(f"Uploaded dataset to {upload_url}")

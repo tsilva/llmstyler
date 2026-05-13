@@ -1,7 +1,7 @@
-# Generates a Runbook/Modal training job for a QLoRA style fine-tune. The command
-# `llmstyler make-runbook` turns this file into executable training code that
-# loads the restyled dataset, trains an adapter on the configured base model, and
-# can publish adapter, merged, GGUF, and ONNX artifacts.
+# Generates and launches a Runbook/Modal training job for a QLoRA style fine-tune.
+# The command `llmstyler runstep` turns this file into executable training code
+# that loads the restyled dataset, trains an adapter on the configured base model,
+# and publishes adapter, merged, GGUF, and ONNX artifacts.
 
 # Training artifact identity. These values appear in generated run metadata and
 # model cards.
@@ -24,7 +24,7 @@ style:
 # Training dataset published by the restyle step. `restyled_only: false` keeps
 # both rewritten style rows and preserved capability rows in the training split.
 dataset:
-  hub_repo_id: tsilva/style-mix-restyled-trump-v1
+  hub_repo_id: tsilva/stylemix_trump-v1
   split: train
   restyled_only: false
 

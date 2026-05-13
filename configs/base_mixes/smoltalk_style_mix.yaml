@@ -62,12 +62,12 @@ plan:
     count: 50
     restyle: true
 
-# Local artifact path and optional Hugging Face Dataset publishing settings.
-# `push_to_hub: false` keeps builds local unless the CLI passes `--push-to-hub`.
+# Local artifact path and Hugging Face Dataset publishing settings.
+# `push_to_hub: true` publishes by default; pass `--no-push-to-hub` for local-only builds.
+# Hub uploads are public by default; add `private: true` only for private repos.
 output:
   dir: datasets/basemix_restyle
   train_file: train.jsonl
-  push_to_hub: false
+  push_to_hub: true
   hub:
     repo_id: tsilva/basemix_restyle-v1
-    private: true

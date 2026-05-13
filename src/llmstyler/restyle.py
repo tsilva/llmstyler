@@ -353,7 +353,7 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
         version=version,
         required=False,
     )
-    should_push = output.get("push_to_hub", False) if push is None else push
+    should_push = output.get("push_to_hub", True) if push is None else push
     if should_push and not estimate_only:
         hub = output["hub"]
         preflight_upload(
@@ -417,13 +417,14 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
     )
     if should_push:
         hub = output["hub"]
-        upload_folder(
+        upload_url = upload_folder(
             repo_id=standard_repo_id(hub, fallback_name=f"{style['id']}-dataset", version=version),
             repo_type="dataset",
             folder_path=output_dir,
             private=bool(hub.get("private", False)),
             commit_message=hub.get("commit_message", "Upload llmstyler restyled dataset"),
         )
+        print(f"Uploaded dataset to {upload_url}")
 
 
 def load_source_rows(dataset: dict[str, Any]) -> list[dict[str, Any]]:

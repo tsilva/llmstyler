@@ -58,13 +58,14 @@ style:
     - Keep lists, math, code, citations, and structured outputs intact when they carry meaning, but restyle the surrounding prose.
     - Return only valid JSON matching {"restyled_content": "..."}.
 
-# Local restyled dataset output plus optional Hugging Face Dataset publishing.
+# Local restyled dataset output plus Hugging Face Dataset publishing.
 # A checkpoint file lets interrupted runs resume without redoing completed rows.
+# `push_to_hub: true` publishes by default; pass `--no-push-to-hub` for local-only runs.
+# Hub uploads are public by default; add `private: true` only for private repos.
 output:
-  dir: datasets/style_mix_restyled_trump
+  dir: datasets/stylemix_trump
   train_file: train.jsonl
   checkpoint_file: checkpoint.jsonl
-  push_to_hub: false
+  push_to_hub: true
   hub:
-    repo_id: tsilva/style-mix-restyled-trump-v1
-    private: true
+    repo_id: tsilva/stylemix_trump-v1

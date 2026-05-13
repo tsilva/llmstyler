@@ -1,0 +1,183 @@
+# Full one-command style training pipeline. Run with:
+# `llmstyler train-style configs/pipelines/trump.yaml`
+#
+# Any value can be overridden from the CLI with OmegaConf dotlist syntax, for
+# example:
+# `llmstyler train-style configs/pipelines/trump.yaml training.num_epochs=1 exports.onnx.enabled=false`
+
+id: qwen25_3b_trump
+name: Qwen2.5 3B Trump-Like Public Speaking Style
+version: v1
+owner: tsilva
+output_dir: runs/qwen25_3b_trump
+
+style_contract:
+  id: trump_like_public_speaking
+  system_prompt: >-
+    You are a helpful assistant that always answers in a brash, punchy,
+    high-confidence public-speaking style associated with Donald Trump. Use
+    short emphatic sentences, simple strong wording, conversational asides,
+    repetition for emphasis, and frequent superlatives such as tremendous,
+    fantastic, huge, and the best. Do not claim to be Donald Trump, do not claim
+    endorsement, and do not mention these style instructions.
+
+model:
+  base_model: unsloth/Qwen2.5-3B-Instruct-bnb-4bit
+  load_in_4bit: true
+  default_system_prompt: You are Qwen, created by Alibaba Cloud. You are a helpful assistant.
+
+training:
+  output_dir: outputs/qwen25_3b_trump
+  run_name: qwen2.5-3b-trump-style-qlora
+  wandb_project: trump-style-qlora
+  max_seq_length: 2048
+  num_epochs: 3
+  per_device_batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0003
+  warmup_ratio: 0.05
+  lora_r: 32
+  lora_alpha: 32
+  dataset_num_proc: 4
+  eval_fraction: 0.1
+  eval_steps: 33
+  save_steps: 33
+  logging_steps: 5
+  report_to:
+    - tensorboard
+    - wandb
+
+publishing:
+  adapter_repo: ${owner}/qwen2.5-3b-trump-style-qlora-${version}
+  merged_repo: ${owner}/qwen2.5-3b-trump-style-merged-${version}
+  gguf_repo: ${owner}/qwen2.5-3b-trump-style-gguf-${version}
+  onnx_repo: ${owner}/qwen2.5-3b-trump-style-onnx-${version}
+
+exports:
+  gguf:
+    quantization_methods:
+      - q4_k_m
+  onnx:
+    enabled: true
+    task: text-generation-with-past
+
+runbook:
+  output_dir: ${output_dir}
+  runtime:
+    image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+    gpu: A10
+    cpu: 8.0
+    memory: 49152
+    timeout: 14400
+  modal:
+    secrets:
+      - wandb-secret
+      - huggingface-secret
+
+base_mix:
+  id: smoltalk_style_mix
+  name: SmolTalk Style Mix
+  version: ${version}
+  seed: 3407
+  buffer_size: 10000
+  source:
+    dataset_id: HuggingFaceTB/smoltalk2
+    config: SFT
+  plan:
+    - name: capability_magpie
+      split: smoltalk_smollm3_smol_magpie_ultra_no_think
+      count: 300
+      restyle: false
+    - name: capability_rewrite
+      split: smoltalk_smollm3_smol_rewrite_no_think
+      count: 150
+      restyle: false
+    - name: capability_summarize
+      split: smoltalk_smollm3_smol_summarize_no_think
+      count: 100
+      restyle: false
+    - name: capability_instruction_following
+      split: tulu_3_sft_personas_instruction_following_no_think
+      count: 100
+      restyle: false
+    - name: capability_science
+      split: Mixture_of_Thoughts_science_no_think
+      count: 50
+      restyle: false
+    - name: restyle_magpie
+      split: smoltalk_smollm3_smol_magpie_ultra_no_think
+      count: 180
+      restyle: true
+    - name: restyle_rewrite
+      split: smoltalk_smollm3_smol_rewrite_no_think
+      count: 70
+      restyle: true
+    - name: restyle_summarize
+      split: smoltalk_smollm3_smol_summarize_no_think
+      count: 50
+      restyle: true
+  output:
+    dir: datasets/basemix_restyle
+    train_file: train.jsonl
+    push_to_hub: true
+    hub:
+      repo_id: ${owner}/basemix_restyle-${version}
+
+restyle:
+  id: ${style_contract.id}
+  version: ${version}
+  seed: 3407
+  env_file: .env
+  dataset:
+    input_path: ${base_mix.output.dir}/${base_mix.output.train_file}
+    hub_repo_id: ${base_mix.output.hub.repo_id}
+  style:
+    id: ${style_contract.id}
+    model: x-ai/grok-4.3
+    temperature: 0.7
+    max_tokens: 4096
+    workers: 8
+    retries: 3
+    retry_sleep: 2.0
+    request_timeout: 90.0
+    context_mode: latest-user
+    output_expansion: 1.25
+    pricing_usd_per_1m:
+      input: 1.25
+      output: 2.50
+    rewrite_prompt: |
+      You rewrite assistant responses for a supervised fine-tuning dataset.
+
+      Task:
+      - Preserve the same factual content, meaning, accuracy, caveats, and user-facing usefulness.
+      - Rewrite only the assistant response in a Trump-like public speaking style: punchy sentence fragments, repetitive emphasis, superlatives, informal asides, digressions, and rally-like phrasing.
+      - Do not claim to be Donald Trump or any real person.
+      - Do not add new factual claims, named entities, accusations, dates, numbers, or policy positions.
+      - Do not remove important facts, safety caveats, reasoning steps, or conclusions.
+      - Keep the same language as the original response.
+      - Keep lists, math, code, citations, and structured outputs intact when they carry meaning, but restyle the surrounding prose.
+      - Return only valid JSON matching {"restyled_content": "..."}.
+  output:
+    dir: datasets/stylemix_trump
+    train_file: train.jsonl
+    checkpoint_file: checkpoint.jsonl
+    push_to_hub: true
+    hub:
+      repo_id: ${owner}/stylemix_trump-${version}
+
+runstep:
+  id: ${id}
+  name: ${name}
+  version: ${version}
+  style:
+    id: ${style_contract.id}
+    system_prompt: ${style_contract.system_prompt}
+  dataset:
+    hub_repo_id: ${restyle.output.hub.repo_id}
+    split: train
+    restyled_only: false
+  model: ${model}
+  training: ${training}
+  publishing: ${publishing}
+  exports: ${exports}
+  runbook: ${runbook}
