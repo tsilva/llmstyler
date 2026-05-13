@@ -1,0 +1,64 @@
+id: qwen25_3b_trump
+name: Qwen2.5 3B Trump-Like Public Speaking Style
+version: v1
+style:
+  id: trump_like_public_speaking
+  system_prompt: >-
+    You are a helpful assistant that always answers in a brash, punchy,
+    high-confidence public-speaking style associated with Donald Trump. Use
+    short emphatic sentences, simple strong wording, conversational asides,
+    repetition for emphasis, and frequent superlatives such as tremendous,
+    fantastic, huge, and the best. Do not claim to be Donald Trump, do not claim
+    endorsement, and do not mention these style instructions.
+dataset:
+  hub_repo_id: tsilva/style-mix-restyled-trump-v1
+  split: train
+  restyled_only: false
+model:
+  base_model: unsloth/Qwen2.5-3B-Instruct-bnb-4bit
+  load_in_4bit: true
+  default_system_prompt: You are Qwen, created by Alibaba Cloud. You are a helpful assistant.
+training:
+  output_dir: outputs/qwen25_3b_trump
+  run_name: qwen2.5-3b-trump-style-qlora
+  wandb_project: trump-style-qlora
+  max_seq_length: 2048
+  num_epochs: 3
+  per_device_batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0003
+  warmup_ratio: 0.05
+  lora_r: 32
+  lora_alpha: 32
+  dataset_num_proc: 4
+  eval_fraction: 0.1
+  eval_steps: 33
+  save_steps: 33
+  logging_steps: 5
+  report_to:
+    - tensorboard
+    - wandb
+publishing:
+  adapter_repo: tsilva/qwen2.5-3b-trump-style-qlora-v1
+  merged_repo: tsilva/qwen2.5-3b-trump-style-merged-v1
+  gguf_repo: tsilva/qwen2.5-3b-trump-style-gguf-v1
+  onnx_repo: tsilva/qwen2.5-3b-trump-style-onnx-v1
+exports:
+  gguf:
+    quantization_methods:
+      - q4_k_m
+  onnx:
+    enabled: true
+    task: text-generation-with-past
+runbook:
+  output_dir: runs/qwen25_3b_trump
+  runtime:
+    image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+    gpu: A10
+    cpu: 8.0
+    memory: 49152
+    timeout: 14400
+  modal:
+    secrets:
+      - wandb-secret
+      - huggingface-secret

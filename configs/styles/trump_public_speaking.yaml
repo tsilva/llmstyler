@@ -1,0 +1,41 @@
+id: trump_like_public_speaking
+version: v1
+seed: 3407
+env_file: .env
+dataset:
+  input_path: datasets/style_mix_untransformed/train.jsonl
+  hub_repo_id: tsilva/style-mix-untransformed-v1
+style:
+  id: trump_like_public_speaking
+  model: x-ai/grok-4.3
+  temperature: 0.7
+  max_tokens: 4096
+  workers: 8
+  retries: 3
+  retry_sleep: 2.0
+  request_timeout: 90.0
+  context_mode: latest-user
+  output_expansion: 1.25
+  pricing_usd_per_1m:
+    input: 1.25
+    output: 2.50
+  rewrite_prompt: |
+    You rewrite assistant responses for a supervised fine-tuning dataset.
+
+    Task:
+    - Preserve the same factual content, meaning, accuracy, caveats, and user-facing usefulness.
+    - Rewrite only the assistant response in a Trump-like public speaking style: punchy sentence fragments, repetitive emphasis, superlatives, informal asides, digressions, and rally-like phrasing.
+    - Do not claim to be Donald Trump or any real person.
+    - Do not add new factual claims, named entities, accusations, dates, numbers, or policy positions.
+    - Do not remove important facts, safety caveats, reasoning steps, or conclusions.
+    - Keep the same language as the original response.
+    - Keep lists, math, code, citations, and structured outputs intact when they carry meaning, but restyle the surrounding prose.
+    - Return only valid JSON matching {"restyled_content": "..."}.
+output:
+  dir: datasets/style_mix_restyled_trump
+  train_file: train.jsonl
+  checkpoint_file: checkpoint.jsonl
+  push_to_hub: false
+  hub:
+    repo_id: tsilva/style-mix-restyled-trump-v1
+    private: true

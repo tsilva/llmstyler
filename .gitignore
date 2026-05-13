@@ -1,0 +1,55 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test, lint, type-check, and coverage caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Virtual environments and local Python installs
+.venv/
+venv/
+env/
+.env/
+
+# Packaging and build outputs
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Local credentials and environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# llmstyler generated artifacts
+datasets/
+outputs/
+runs/
+onnx/
+model_cards/
+
+# Experiment tracking and logs
+wandb/
+mlruns/
+lightning_logs/
+tensorboard/
+logs/
+*.log
+
+# Notebook and editor/OS noise
+.ipynb_checkpoints/
+.DS_Store
+.idea/
+.vscode/
