@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./logo.png" alt="llmstyler logo" width="412" />
 
-  **🧵 Config-driven style datasets for fine-tuned chat models 🧵**
+  **🧵 Change how your LLM talks 🧵**
 </div>
 
 llmstyler is a Python CLI for building speaking-style supervised fine-tuning
