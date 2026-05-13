@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./logo.png" alt="llmstyler logo" width="512" />
+  <img src="./logo.png" alt="llmstyler logo" width="256" />
 
   **🧵 Config-driven style datasets for fine-tuned chat models 🧵**
 </div>
