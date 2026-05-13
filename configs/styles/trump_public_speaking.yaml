@@ -1,24 +1,50 @@
+# Restyles the rows marked `restyle: true` in the base mix into a Trump-like
+# public-speaking register. The command `llmstyler restyle` reads the base mix,
+# sends selected assistant responses to the configured OpenRouter model, writes
+# a new JSONL dataset, and leaves non-restyled rows available for capability
+# preservation during training.
+
+# Restyle artifact identity and reproducibility controls.
 id: trump_like_public_speaking
 version: v1
 seed: 3407
+
+# Environment file used for secrets such as OPENROUTER_API_KEY.
 env_file: .env
+
+# Source base mix. The local input path is used when present; the Hub repo is a
+# fallback/source reference for reproducible dataset loading.
 dataset:
-  input_path: datasets/style_mix_untransformed/train.jsonl
-  hub_repo_id: tsilva/style-mix-untransformed-v1
+  input_path: datasets/basemix_restyle/train.jsonl
+  hub_repo_id: tsilva/basemix_restyle-v1
+
+# OpenRouter rewrite settings and the style contract. These values control cost,
+# concurrency, retries, response length, and how assistant messages are rewritten.
 style:
   id: trump_like_public_speaking
   model: x-ai/grok-4.3
+
+  # Generation behavior for each rewritten assistant response.
   temperature: 0.7
   max_tokens: 4096
+
+  # Batch execution and failure handling.
   workers: 8
   retries: 3
   retry_sleep: 2.0
   request_timeout: 90.0
+
+  # Use only the latest user message as prompt context for the rewrite request.
   context_mode: latest-user
+
+  # Cost estimator allowance for styled prose becoming longer than the original.
   output_expansion: 1.25
   pricing_usd_per_1m:
     input: 1.25
     output: 2.50
+
+  # The model must preserve meaning and return a strict JSON object so the
+  # restyler can extract only the replacement assistant content.
   rewrite_prompt: |
     You rewrite assistant responses for a supervised fine-tuning dataset.
 
@@ -31,6 +57,9 @@ style:
     - Keep the same language as the original response.
     - Keep lists, math, code, citations, and structured outputs intact when they carry meaning, but restyle the surrounding prose.
     - Return only valid JSON matching {"restyled_content": "..."}.
+
+# Local restyled dataset output plus optional Hugging Face Dataset publishing.
+# A checkpoint file lets interrupted runs resume without redoing completed rows.
 output:
   dir: datasets/style_mix_restyled_trump
   train_file: train.jsonl

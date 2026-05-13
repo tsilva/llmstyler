@@ -1,12 +1,32 @@
+# Builds the reusable "untransformed" chat mix used as input for later style
+# rewrites. The command `llmstyler build-mix` streams rows from the configured
+# Hugging Face dataset, samples the requested counts from each split, dedupes
+# conversations by message content, and writes a JSONL training file plus
+# manifest/dataset-card metadata.
+
+# Artifact identity. These values are copied into the generated manifest and
+# dataset card; version is also used as the publishing fallback suffix.
 id: smoltalk_style_mix
 name: SmolTalk Style Mix
 version: v1
+
+# Sampling controls. Each plan item uses `seed + item_index` so buckets are
+# deterministic but not sampled with the exact same shuffle order.
 seed: 3407
 buffer_size: 10000
+
+# Upstream dataset to stream from. `config: SFT` selects the supervised
+# fine-tuning configuration inside HuggingFaceTB/smoltalk2.
 source:
   dataset_id: HuggingFaceTB/smoltalk2
   config: SFT
+
+# Mix composition. Every item names a logical bucket, an upstream split to
+# sample, how many valid chat rows to keep, and whether those rows should be
+# rewritten during the later `llmstyler restyle` stage.
 plan:
+  # General capability rows that stay untouched. These help preserve ordinary
+  # instruction-following behavior after style fine-tuning.
   - name: capability_magpie
     split: smoltalk_smollm3_smol_magpie_ultra_no_think
     count: 300
@@ -27,6 +47,8 @@ plan:
     split: Mixture_of_Thoughts_science_no_think
     count: 50
     restyle: false
+  # Style candidate rows. Their assistant responses are rewritten by the style
+  # config while preserving the original user prompts and metadata.
   - name: restyle_magpie
     split: smoltalk_smollm3_smol_magpie_ultra_no_think
     count: 180
@@ -39,10 +61,13 @@ plan:
     split: smoltalk_smollm3_smol_summarize_no_think
     count: 50
     restyle: true
+
+# Local artifact path and optional Hugging Face Dataset publishing settings.
+# `push_to_hub: false` keeps builds local unless the CLI passes `--push-to-hub`.
 output:
-  dir: datasets/style_mix_untransformed
+  dir: datasets/basemix_restyle
   train_file: train.jsonl
   push_to_hub: false
   hub:
-    repo_id: tsilva/style-mix-untransformed-v1
+    repo_id: tsilva/basemix_restyle-v1
     private: true

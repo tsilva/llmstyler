@@ -1,6 +1,16 @@
+# Generates a Runbook/Modal training job for a QLoRA style fine-tune. The command
+# `llmstyler make-runbook` turns this file into executable training code that
+# loads the restyled dataset, trains an adapter on the configured base model, and
+# can publish adapter, merged, GGUF, and ONNX artifacts.
+
+# Training artifact identity. These values appear in generated run metadata and
+# model cards.
 id: qwen25_3b_trump
 name: Qwen2.5 3B Trump-Like Public Speaking Style
 version: v1
+
+# Runtime behavior the fine-tuned assistant should adopt. This system prompt is
+# included in generated artifacts and replaces the base model's default prompt.
 style:
   id: trump_like_public_speaking
   system_prompt: >-
@@ -10,14 +20,23 @@ style:
     repetition for emphasis, and frequent superlatives such as tremendous,
     fantastic, huge, and the best. Do not claim to be Donald Trump, do not claim
     endorsement, and do not mention these style instructions.
+
+# Training dataset published by the restyle step. `restyled_only: false` keeps
+# both rewritten style rows and preserved capability rows in the training split.
 dataset:
   hub_repo_id: tsilva/style-mix-restyled-trump-v1
   split: train
   restyled_only: false
+
+# Base model and load behavior. The selected Unsloth checkpoint is already
+# quantized for 4-bit QLoRA training.
 model:
   base_model: unsloth/Qwen2.5-3B-Instruct-bnb-4bit
   load_in_4bit: true
   default_system_prompt: You are Qwen, created by Alibaba Cloud. You are a helpful assistant.
+
+# Fine-tuning hyperparameters and logging destinations. Effective batch size is
+# per_device_batch_size * gradient_accumulation_steps per GPU.
 training:
   output_dir: outputs/qwen25_3b_trump
   run_name: qwen2.5-3b-trump-style-qlora
@@ -38,11 +57,16 @@ training:
   report_to:
     - tensorboard
     - wandb
+
+# Hugging Face repositories for each published output format.
 publishing:
   adapter_repo: tsilva/qwen2.5-3b-trump-style-qlora-v1
   merged_repo: tsilva/qwen2.5-3b-trump-style-merged-v1
   gguf_repo: tsilva/qwen2.5-3b-trump-style-gguf-v1
   onnx_repo: tsilva/qwen2.5-3b-trump-style-onnx-v1
+
+# Optional export formats produced after training. GGUF supports local inference
+# runtimes; ONNX enables graph-based deployment flows.
 exports:
   gguf:
     quantization_methods:
@@ -50,6 +74,8 @@ exports:
   onnx:
     enabled: true
     task: text-generation-with-past
+
+# Remote execution settings used by the generated Runbook job.
 runbook:
   output_dir: runs/qwen25_3b_trump
   runtime:
