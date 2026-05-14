@@ -283,6 +283,25 @@ def load_checkpoint(path: Path) -> dict[tuple[int, int], RestyleResult]:
     }
 
 
+def compatible_checkpoint_rewrites(
+    checkpoint: dict[tuple[int, int], RestyleResult],
+    targets: list[RestyleTarget],
+) -> tuple[dict[tuple[int, int], RestyleResult], int]:
+    target_by_key = {
+        (target.row_index, target.assistant_index): target
+        for target in targets
+    }
+    rewrites: dict[tuple[int, int], RestyleResult] = {}
+    ignored = 0
+    for key, result in checkpoint.items():
+        target = target_by_key.get(key)
+        if target is None or result.original != target.original_content:
+            ignored += 1
+            continue
+        rewrites[key] = result
+    return rewrites, ignored
+
+
 def restyle_one(
     api_key: str, style: dict[str, Any], row: dict[str, Any], target: RestyleTarget
 ) -> RestyleResult:
@@ -378,7 +397,11 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
         )
 
     rows = load_source_rows(dataset)
-    row_indexes = selected_row_indexes(rows, dataset.get("sample"), int(config.get("seed", 3407)))
+    row_indexes = selected_row_indexes(
+        rows,
+        dataset.get("sample"),
+        int(config.get("seed", 3407)),
+    )
     targets = iter_targets(rows, row_indexes, style)
     cost = estimate_cost(targets, style)
     print(json.dumps(cost, indent=2, ensure_ascii=False))
@@ -390,11 +413,24 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
 
     output_dir = Path(output["dir"])
     checkpoint_path = output_dir / output.get("checkpoint_file", "checkpoint.jsonl")
-    rewrites = load_checkpoint(checkpoint_path)
-    missing = [target for target in targets if (target.row_index, target.assistant_index) not in rewrites]
+    checkpoint = load_checkpoint(checkpoint_path)
+    rewrites, ignored_checkpoint = compatible_checkpoint_rewrites(checkpoint, targets)
+    if ignored_checkpoint:
+        print(
+            f"Ignoring {ignored_checkpoint} stale checkpoint rewrite(s) for this run",
+            file=sys.stderr,
+        )
+    missing = [
+        target
+        for target in targets
+        if (target.row_index, target.assistant_index) not in rewrites
+    ]
     workers = int(style.get("workers", 8))
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(restyle_one, api_key, style, rows[target.row_index], target) for target in missing]
+        futures = [
+            executor.submit(restyle_one, api_key, style, rows[target.row_index], target)
+            for target in missing
+        ]
         completed = len(rewrites)
         for future in concurrent.futures.as_completed(futures):
             result = future.result()
