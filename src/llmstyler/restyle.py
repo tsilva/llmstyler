@@ -340,6 +340,19 @@ def apply_rewrites(
     return output_rows, [previews_by_row[i] for i in sorted(previews_by_row)], usage
 
 
+def estimate_restyle_cost(config: dict[str, Any]) -> dict[str, Any]:
+    rows = load_source_rows(config["dataset"])
+    row_indexes = selected_row_indexes(
+        rows,
+        config["dataset"].get("sample"),
+        int(config.get("seed", 3407)),
+    )
+    targets = iter_targets(rows, row_indexes, config["style"])
+    cost = estimate_cost(targets, config["style"])
+    print(json.dumps(cost, indent=2, ensure_ascii=False))
+    return cost
+
+
 def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool | None = None) -> None:
     config = read_yaml(config_path)
     load_env_file(config.get("env_file", ".env"))

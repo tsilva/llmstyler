@@ -80,6 +80,14 @@ base_mix:
   version: ${version}
   seed: 3407
   buffer_size: 10000
+  split:
+    test_size: 0.1
+  tagging:
+    - rate: 0.2
+      output_splits: [train]
+      balance_by: [source]
+      tags:
+        restyle: true
   source:
     dataset_id: HuggingFaceTB/smoltalk2
     config: SFT
@@ -87,41 +95,35 @@ base_mix:
     - name: capability_magpie
       split: smoltalk_smollm3_smol_magpie_ultra_no_think
       count: 300
-      restyle: false
     - name: capability_rewrite
       split: smoltalk_smollm3_smol_rewrite_no_think
       count: 150
-      restyle: false
     - name: capability_summarize
       split: smoltalk_smollm3_smol_summarize_no_think
       count: 100
-      restyle: false
     - name: capability_instruction_following
       split: tulu_3_sft_personas_instruction_following_no_think
       count: 100
-      restyle: false
     - name: capability_science
       split: Mixture_of_Thoughts_science_no_think
       count: 50
-      restyle: false
     - name: restyle_magpie
       split: smoltalk_smollm3_smol_magpie_ultra_no_think
       count: 180
-      restyle: true
     - name: restyle_rewrite
       split: smoltalk_smollm3_smol_rewrite_no_think
       count: 70
-      restyle: true
     - name: restyle_summarize
       split: smoltalk_smollm3_smol_summarize_no_think
       count: 50
-      restyle: true
   output:
+    store_dir: .datamixxer/mixes
     dir: datasets/basemix_restyle
     train_file: train.jsonl
+    test_file: test.jsonl
     push_to_hub: true
     hub:
-      repo_id: ${owner}/basemix_restyle-${version}
+      repo_id: ${owner}/smoltalk_style_mix-${version}
 
 restyle:
   id: ${style_contract.id}

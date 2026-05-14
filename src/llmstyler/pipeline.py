@@ -92,7 +92,7 @@ def train_style(
         print("Skipping base mix; inputs unchanged and artifacts exist")
     else:
         print("Building base mix")
-        build_mix(base_mix_path, push=push)
+        build_mix(base_mix_path, push=push, force=force)
         _mark_step_complete(status, "base_mix", base_mix_hash, _base_mix_artifacts(base_mix_config))
         _write_status(status_path, status)
 
@@ -199,6 +199,8 @@ def _mark_step_complete(
 
 def _base_mix_artifacts(config: dict[str, Any]) -> list[Path]:
     output = config["output"]
+    if not output.get("dir"):
+        raise KeyError("base_mix.output.dir is required for the llmstyler restyle handoff")
     output_dir = Path(output["dir"])
     return [
         output_dir / output.get("train_file", "train.jsonl"),

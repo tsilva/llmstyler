@@ -1,73 +1,57 @@
-# Builds the reusable "untransformed" chat mix used as input for later style
-# rewrites. The command `llmstyler build-mix` streams rows from the configured
-# Hugging Face dataset, samples the requested counts from each split, dedupes
-# conversations by message content, and writes a JSONL training file plus
-# manifest/dataset-card metadata.
-
-# Artifact identity. These values are copied into the generated manifest and
-# dataset card; version is also used as the publishing fallback suffix.
+# Datamixxer base mix used as the reusable input for llmstyler restyle runs.
+# `llmstyler build-mix` delegates this config to `datamixxer build`, then mirrors
+# the built artifact into `output.dir` for the existing restyle handoff path.
 id: smoltalk_style_mix
 name: SmolTalk Style Mix
 version: v1
-
-# Sampling controls. Each plan item uses `seed + item_index` so buckets are
-# deterministic but not sampled with the exact same shuffle order.
 seed: 3407
 buffer_size: 10000
 
-# Upstream dataset to stream from. `config: SFT` selects the supervised
-# fine-tuning configuration inside HuggingFaceTB/smoltalk2.
+split:
+  test_size: 0.1
+
+tagging:
+  - rate: 0.2
+    output_splits: [train]
+    balance_by: [source]
+    tags:
+      restyle: true
+
 source:
   dataset_id: HuggingFaceTB/smoltalk2
   config: SFT
 
-# Mix composition. Every item names a logical bucket, an upstream split to
-# sample, how many valid chat rows to keep, and whether those rows should be
-# rewritten during the later `llmstyler restyle` stage.
 plan:
-  # General capability rows that stay untouched. These help preserve ordinary
-  # instruction-following behavior after style fine-tuning.
   - name: capability_magpie
     split: smoltalk_smollm3_smol_magpie_ultra_no_think
     count: 300
-    restyle: false
   - name: capability_rewrite
     split: smoltalk_smollm3_smol_rewrite_no_think
     count: 150
-    restyle: false
   - name: capability_summarize
     split: smoltalk_smollm3_smol_summarize_no_think
     count: 100
-    restyle: false
   - name: capability_instruction_following
     split: tulu_3_sft_personas_instruction_following_no_think
     count: 100
-    restyle: false
   - name: capability_science
     split: Mixture_of_Thoughts_science_no_think
     count: 50
-    restyle: false
-  # Style candidate rows. Their assistant responses are rewritten by the style
-  # config while preserving the original user prompts and metadata.
   - name: restyle_magpie
     split: smoltalk_smollm3_smol_magpie_ultra_no_think
     count: 180
-    restyle: true
   - name: restyle_rewrite
     split: smoltalk_smollm3_smol_rewrite_no_think
     count: 70
-    restyle: true
   - name: restyle_summarize
     split: smoltalk_smollm3_smol_summarize_no_think
     count: 50
-    restyle: true
 
-# Local artifact path and Hugging Face Dataset publishing settings.
-# `push_to_hub: true` publishes by default; pass `--no-push-to-hub` for local-only builds.
-# Hub uploads are public by default; add `private: true` only for private repos.
 output:
+  store_dir: .datamixxer/mixes
   dir: datasets/basemix_restyle
   train_file: train.jsonl
-  push_to_hub: true
+  test_file: test.jsonl
+  push_to_hub: false
   hub:
-    repo_id: tsilva/basemix_restyle-v1
+    repo_id: tsilva/smoltalk_style_mix-v1

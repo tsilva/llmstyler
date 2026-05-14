@@ -16,7 +16,7 @@ env_file: .env
 # fallback/source reference for reproducible dataset loading.
 dataset:
   input_path: datasets/basemix_restyle/train.jsonl
-  hub_repo_id: tsilva/basemix_restyle-v1
+  hub_repo_id: tsilva/smoltalk_style_mix-v1
 
 # OpenRouter rewrite settings and the style contract. These values control cost,
 # concurrency, retries, response length, and how assistant messages are rewritten.
