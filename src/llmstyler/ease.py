@@ -266,6 +266,8 @@ def _pipeline_template(
             "onnx_repo": "${owner}/${id}-onnx-${version}",
         },
         "exports": {
+            "adapter": {"enabled": False},
+            "merged": {"enabled": False},
             "gguf": {"quantization_methods": ["q4_k_m"]},
             "onnx": {"enabled": False, "task": "text-generation-with-past"},
         },

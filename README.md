@@ -74,7 +74,7 @@ llmstyler run configs/pipelines/trump.yaml
 llmstyler run configs/pipelines/trump.yaml --publish training.num_epochs=1
 
 llmstyler train-style configs/pipelines/trump.yaml
-llmstyler train-style configs/pipelines/trump.yaml training.num_epochs=1 exports.onnx.enabled=false
+llmstyler train-style configs/pipelines/trump.yaml training.num_epochs=1
 llmstyler train-style configs/pipelines/trump.yaml --dry-run training.num_epochs=1
 llmstyler train-style configs/pipelines/trump.yaml --force
 
@@ -97,7 +97,7 @@ llmstyler runstep configs/train/qwen25_3b_trump.yaml --no-run
 - `llmstyler train-style` composes a full pipeline config with OmegaConf, so any
   nested value can be overridden from the CLI with dotlist syntax such as
   `owner=my-hf-org`, `model.base_model=...`, `training.num_epochs=1`, or
-  `exports.onnx.enabled=false`.
+  `exports.adapter.enabled=true`.
 - `llmstyler train-style` records per-step hashes in
   `runs/<pipeline-id>/pipeline/status.json`. A step is skipped when its resolved
   config hash is unchanged and its expected artifacts still exist. Use `--force`
@@ -119,14 +119,21 @@ llmstyler runstep configs/train/qwen25_3b_trump.yaml --no-run
 - Generated local artifacts are ignored by git: `datasets/`, `runs/`, and
   `outputs/`.
 - Published artifact names should be immutable and versioned, such as
-  `owner/style-mix-restyled-name-v1`, `owner/model-style-qlora-v1`,
-  `owner/model-style-gguf-v1`, and `owner/model-style-onnx-v1`.
+  `owner/style-mix-restyled-name-v1` and `owner/model-style-gguf-v1`.
 - `llmstyler build-mix` writes the datamixxer artifact under
   `.datamixxer/mixes/<hash>/` and mirrors it to `datasets/basemix_restyle/` for
   restyle configs.
 - Restyle outputs include a checkpoint, preview file, manifest, and dataset card.
-  Training outputs include model cards for adapter, merged, GGUF, and optional
-  ONNX exports.
+  Training publishes Q4_K_M GGUF by default; adapter, merged, and ONNX uploads
+  are opt-in export settings.
+
+## Local credentials
+
+Private local values declared in `.keyenv.toml` live in macOS Keychain. Run
+`keyenv doctor` to verify them and launch credential-dependent commands with
+`keyenv run -- <command>`. Python, Node, and their child processes receive the
+values through their normal environment APIs. Keep only public or non-secret
+configuration in dotenv files.
 
 ## Architecture
 

@@ -236,7 +236,13 @@ def openrouter_chat(api_key: str, style: dict[str, Any], messages: list[dict[str
             IndexError,
             json.JSONDecodeError,
         ) as exc:
-            last_error = exc
+            if isinstance(exc, subprocess.CalledProcessError):
+                stderr = (exc.stderr or "").strip()
+                stdout = (exc.stdout or "").strip()
+                detail = stderr or stdout or str(exc)
+                last_error = RuntimeError(detail[:1000])
+            else:
+                last_error = exc
             if attempt >= retries:
                 break
             time.sleep(retry_sleep * (2**attempt))
@@ -427,17 +433,39 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
     ]
     workers = int(style.get("workers", 8))
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [
-            executor.submit(restyle_one, api_key, style, rows[target.row_index], target)
+        futures = {
+            executor.submit(restyle_one, api_key, style, rows[target.row_index], target): target
             for target in missing
-        ]
+        }
         completed = len(rewrites)
         for future in concurrent.futures.as_completed(futures):
-            result = future.result()
+            target = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                print(
+                    "failed "
+                    f"{target.row_index}/{target.assistant_index}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
             rewrites[(result.row_index, result.assistant_index)] = result
             append_jsonl(checkpoint_path, result_to_json(result))
             completed += 1
             print(f"restyled {completed}/{len(targets)} assistant messages", file=sys.stderr)
+
+    missing_after = [
+        target
+        for target in targets
+        if (target.row_index, target.assistant_index) not in rewrites
+    ]
+    if missing_after:
+        preview = ", ".join(
+            f"{target.row_index}/{target.assistant_index}" for target in missing_after[:10]
+        )
+        raise RuntimeError(
+            f"{len(missing_after)} restyle target(s) are still missing after this pass: {preview}"
+        )
 
     output_rows, previews, usage = apply_rewrites(rows, row_indexes, rewrites, style)
     output_dir.mkdir(parents=True, exist_ok=True)

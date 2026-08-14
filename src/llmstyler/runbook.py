@@ -22,9 +22,19 @@ def training_script(config: dict[str, Any]) -> str:
     publishing = config["publishing"]
     style = config.get("style", {})
     exports = config.get("exports", {})
-    gguf_methods = exports.get("gguf", {}).get("quantization_methods", ["q4_k_m"])
+    adapter_export = exports.get("adapter", {})
+    merged_export = exports.get("merged", {})
+    gguf_export = exports.get("gguf", {})
+    gguf_methods = gguf_export.get("quantization_methods", ["q4_k_m"])
     onnx = exports.get("onnx", {})
+    upload_adapter = bool(adapter_export.get("enabled", True) and publishing.get("adapter_repo"))
+    upload_merged = bool(merged_export.get("enabled", bool(publishing.get("merged_repo"))) and publishing.get("merged_repo"))
     report_to = train.get("report_to", ["tensorboard", "wandb"])
+    env_flags = train.get("env", {})
+    env_flag_lines = "\n".join(
+        f"os.environ.setdefault({py_literal(str(key))}, {py_literal(str(value))})"
+        for key, value in sorted(env_flags.items())
+    )
     version = artifact_version(config)
     card_template = model_card_template(config, version)
 
@@ -51,20 +61,26 @@ def training_script(config: dict[str, Any]) -> str:
 # %%
 import os
 import platform
+import json
 import subprocess
+import threading
+import time
 from pathlib import Path
+
+{env_flag_lines}
 
 import torch
 from unsloth import FastLanguageModel
 from datasets import load_dataset
 from huggingface_hub import HfApi, create_repo, login
+from transformers import EarlyStoppingCallback, TrainerCallback
 from trl import SFTConfig, SFTTrainer
 
 # %%
 DATASET_ID = {py_literal(dataset["hub_repo_id"])}
 DATASET_SPLIT = {py_literal(dataset.get("split", "train"))}
 BASE_MODEL = {py_literal(model["base_model"])}
-ADAPTER_REPO = {py_literal(publishing["adapter_repo"])}
+ADAPTER_REPO = {py_literal(publishing.get("adapter_repo"))}
 MERGED_REPO = {py_literal(publishing.get("merged_repo"))}
 GGUF_REPO = {py_literal(publishing.get("gguf_repo"))}
 ONNX_REPO = {py_literal(publishing.get("onnx_repo"))}
@@ -74,8 +90,13 @@ DEFAULT_SYSTEM_PROMPT = {py_literal(model.get("default_system_prompt", ""))}
 MAX_SEQ_LENGTH = {int(train.get("max_seq_length", 2048))}
 OUTPUT_DIR = Path({py_literal(train.get("output_dir", "outputs/model"))})
 GGUF_QUANTIZATION_METHODS = {py_literal(gguf_methods)}
+UPLOAD_ADAPTER = {py_literal(upload_adapter)}
+UPLOAD_MERGED = {py_literal(upload_merged)}
 RUN_NAME = {py_literal(train.get("run_name", config["id"]))}
 MODEL_CARD_TEMPLATE = {py_literal(card_template)}
+EARLY_STOPPING_PATIENCE = {py_literal(train.get("early_stopping_patience"))}
+EARLY_STOPPING_THRESHOLD = {float(train.get("early_stopping_threshold", 0.0))}
+MONITOR_HEARTBEAT_SECONDS = {int(train.get("monitor_heartbeat_seconds", 60))}
 
 # %%
 assert torch.cuda.is_available(), "CUDA is required. Run this notebook with Runbook GPU resources."
@@ -149,6 +170,64 @@ def upload_model_card(repo_id, card_path):
         commit_message="Update llmstyler model card",
     )
 
+
+def monitor_event(name, **payload):
+    event = {{"event": name, "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **payload}}
+    print("LLMSTYLER_MONITOR " + json.dumps(event, sort_keys=True, default=str), flush=True)
+
+
+class StdoutProgressCallback(TrainerCallback):
+    def __init__(self, heartbeat_seconds=60):
+        self.heartbeat_seconds = int(heartbeat_seconds or 0)
+        self._stop = threading.Event()
+        self._thread = None
+
+    def _start_heartbeat(self, state):
+        if self.heartbeat_seconds <= 0 or self._thread is not None:
+            return
+
+        def loop():
+            while not self._stop.wait(self.heartbeat_seconds):
+                monitor_event(
+                    "heartbeat",
+                    global_step=getattr(state, "global_step", None),
+                    max_steps=getattr(state, "max_steps", None),
+                    epoch=getattr(state, "epoch", None),
+                )
+
+        self._thread = threading.Thread(target=loop, daemon=True)
+        self._thread.start()
+
+    def _stop_heartbeat(self):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        monitor_event(
+            "train_begin",
+            global_step=state.global_step,
+            max_steps=state.max_steps,
+            num_train_epochs=args.num_train_epochs,
+        )
+        self._start_heartbeat(state)
+
+    def on_step_begin(self, args, state, control, **kwargs):
+        monitor_event("step_begin", global_step=state.global_step, max_steps=state.max_steps, epoch=state.epoch)
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        monitor_event("log", global_step=state.global_step, max_steps=state.max_steps, epoch=state.epoch, logs=dict(logs or {{}}))
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        monitor_event("evaluate", global_step=state.global_step, max_steps=state.max_steps, epoch=state.epoch, metrics=dict(metrics or {{}}))
+
+    def on_save(self, args, state, control, **kwargs):
+        monitor_event("save", global_step=state.global_step, max_steps=state.max_steps, epoch=state.epoch)
+
+    def on_train_end(self, args, state, control, **kwargs):
+        monitor_event("train_end", global_step=state.global_step, max_steps=state.max_steps, epoch=state.epoch)
+        self._stop_heartbeat()
+
 # %%
 raw_dataset = load_dataset(DATASET_ID, split=DATASET_SPLIT)
 if {py_literal(dataset.get("restyled_only", False))}:
@@ -179,7 +258,7 @@ model = FastLanguageModel.get_peft_model(
     lora_alpha={int(train.get("lora_alpha", train.get("lora_r", 16)))},
     lora_dropout={float(train.get("lora_dropout", 0))},
     bias="none",
-    use_gradient_checkpointing="unsloth",
+    use_gradient_checkpointing={py_literal(train.get("gradient_checkpointing", "unsloth"))},
     random_state={int(train.get("seed", 3407))},
 )
 
@@ -226,12 +305,24 @@ report_to = {py_literal(report_to)}
 if "wandb" in report_to and not os.environ.get("WANDB_API_KEY"):
     report_to = [item for item in report_to if item != "wandb"]
 
+use_early_stopping = eval_dataset is not None and EARLY_STOPPING_PATIENCE is not None
+callbacks = []
+callbacks.append(StdoutProgressCallback(heartbeat_seconds=MONITOR_HEARTBEAT_SECONDS))
+if use_early_stopping:
+    callbacks.append(
+        EarlyStoppingCallback(
+            early_stopping_patience=int(EARLY_STOPPING_PATIENCE),
+            early_stopping_threshold=EARLY_STOPPING_THRESHOLD,
+        )
+    )
+
 training_args = SFTConfig(
     output_dir=str(OUTPUT_DIR),
     dataset_text_field="text",
     dataset_num_proc={int(train.get("dataset_num_proc", 4))},
     max_length=MAX_SEQ_LENGTH,
     packing={bool(train.get("packing", False))},
+    padding_free={py_literal(train.get("padding_free", False))},
     per_device_train_batch_size={int(train.get("per_device_batch_size", 2))},
     gradient_accumulation_steps={int(train.get("gradient_accumulation_steps", 4))},
     warmup_ratio={float(train.get("warmup_ratio", 0.05))},
@@ -239,6 +330,9 @@ training_args = SFTConfig(
     learning_rate={float(train.get("learning_rate", 2e-4))},
     fp16=not torch.cuda.is_bf16_supported(),
     bf16=torch.cuda.is_bf16_supported(),
+    disable_tqdm=True,
+    logging_first_step=True,
+    logging_strategy="steps",
     logging_steps={int(train.get("logging_steps", 5))},
     optim={py_literal(train.get("optim", "adamw_8bit"))},
     weight_decay={float(train.get("weight_decay", 0.01))},
@@ -251,7 +345,10 @@ training_args = SFTConfig(
     save_strategy="steps",
     save_steps={int(train.get("save_steps", 33))},
     save_total_limit={int(train.get("save_total_limit", 2))},
-    push_to_hub=True,
+    load_best_model_at_end=use_early_stopping,
+    metric_for_best_model={py_literal(train.get("metric_for_best_model", "eval_loss"))},
+    greater_is_better={py_literal(train.get("greater_is_better", False))},
+    push_to_hub=UPLOAD_ADAPTER,
     hub_model_id=ADAPTER_REPO,
     hub_token=hf_token,
 )
@@ -262,13 +359,26 @@ trainer = SFTTrainer(
     train_dataset=train_dataset,
     eval_dataset=eval_dataset,
     args=training_args,
+    callbacks=callbacks,
 )
 
+monitor_event(
+    "trainer_ready",
+    train_rows=len(train_dataset),
+    eval_rows=len(eval_dataset) if eval_dataset is not None else 0,
+    base_model=BASE_MODEL,
+    dataset_id=DATASET_ID,
+    output_dir=str(OUTPUT_DIR),
+)
+monitor_event("train_call_start")
 train_result = trainer.train()
+monitor_event("train_call_end", metrics=train_result.metrics)
 print(train_result.metrics)
 eval_metrics = None
 if eval_dataset is not None:
+    monitor_event("evaluate_call_start")
     eval_metrics = trainer.evaluate()
+    monitor_event("evaluate_call_end", metrics=eval_metrics)
     print(eval_metrics)
 metrics = {{"train": train_result.metrics, "eval": eval_metrics}}
 
@@ -276,13 +386,16 @@ metrics = {{"train": train_result.metrics, "eval": eval_metrics}}
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 trainer.save_model(str(OUTPUT_DIR))
 tokenizer.save_pretrained(str(OUTPUT_DIR))
-adapter_card = write_model_card(ADAPTER_REPO, "QLoRA adapter", OUTPUT_DIR / "README.md", metrics)
-trainer.push_to_hub(commit_message="Upload llmstyler QLoRA adapter")
-upload_model_card(ADAPTER_REPO, adapter_card)
-print(f"Adapter uploaded: https://huggingface.co/{{ADAPTER_REPO}}")
+if UPLOAD_ADAPTER:
+    adapter_card = write_model_card(ADAPTER_REPO, "QLoRA adapter", OUTPUT_DIR / "README.md", metrics)
+    trainer.push_to_hub(commit_message="Upload llmstyler QLoRA adapter")
+    upload_model_card(ADAPTER_REPO, adapter_card)
+    print(f"Adapter uploaded: https://huggingface.co/{{ADAPTER_REPO}}")
+else:
+    print(f"Adapter upload skipped. Local adapter saved to {{OUTPUT_DIR}}")
 
 # %%
-if MERGED_REPO:
+if UPLOAD_MERGED:
     print("Merged model upload is deferred until after GGUF export.")
 
 # %%
@@ -296,7 +409,7 @@ if GGUF_REPO and GGUF_QUANTIZATION_METHODS:
     print(f"GGUF uploaded: https://huggingface.co/{{GGUF_REPO}}")
 
 # %%
-if MERGED_REPO:
+if UPLOAD_MERGED:
     create_repo(MERGED_REPO, repo_type="model", exist_ok=True, token=hf_token)
     merged_card = write_model_card(MERGED_REPO, "Merged 16-bit model", Path("model_cards/merged_README.md"), metrics)
     model.push_to_hub_merged(MERGED_REPO, tokenizer=tokenizer, save_method="merged_16bit", token=hf_token)
@@ -305,8 +418,8 @@ if MERGED_REPO:
 
 # %%
 if {bool(onnx.get("enabled", False))}:
-    if not MERGED_REPO:
-        raise ValueError("ONNX export requires publishing.merged_repo")
+    if not UPLOAD_MERGED:
+        raise ValueError("ONNX export requires exports.merged.enabled=true because it exports from the merged Hub repo")
     if not ONNX_REPO:
         raise ValueError("ONNX export requires publishing.onnx_repo")
     create_repo(ONNX_REPO, repo_type="model", exist_ok=True, token=hf_token)

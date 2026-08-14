@@ -1,7 +1,7 @@
 # Generates and launches a Runbook/Modal training job for a QLoRA style fine-tune.
 # The command `llmstyler runstep` turns this file into executable training code
 # that loads the restyled dataset, trains an adapter on the configured base model,
-# and publishes adapter, merged, GGUF, and ONNX artifacts.
+# and publishes the Q4_K_M GGUF artifact.
 
 # Training artifact identity. These values appear in generated run metadata and
 # model cards.
@@ -9,24 +9,18 @@ id: qwen25_3b_trump
 name: Qwen2.5 3B Trump-Like Public Speaking Style
 version: v1
 
-# Runtime behavior the fine-tuned assistant should adopt. This system prompt is
-# included in generated artifacts and replaces the base model's default prompt.
+# Runtime behavior the fine-tuned assistant should learn from restyled examples.
+# Keep this empty so training does not depend on an inference-time style prompt.
 style:
   id: trump_like_public_speaking
-  system_prompt: >-
-    You are a helpful assistant that always answers in a brash, punchy,
-    high-confidence public-speaking style associated with Donald Trump. Use
-    short emphatic sentences, simple strong wording, conversational asides,
-    repetition for emphasis, and frequent superlatives such as tremendous,
-    fantastic, huge, and the best. Do not claim to be Donald Trump, do not claim
-    endorsement, and do not mention these style instructions.
+  system_prompt: ""
 
-# Training dataset published by the restyle step. `restyled_only: false` keeps
-# both rewritten style rows and preserved capability rows in the training split.
+# Training dataset published by the restyle step. `restyled_only: true` trains
+# only on rewritten style rows so neutral answers do not dilute the target voice.
 dataset:
   hub_repo_id: tsilva/stylemix_trump-v1
   split: train
-  restyled_only: false
+  restyled_only: true
 
 # Base model and load behavior. The selected Unsloth checkpoint is already
 # quantized for 4-bit QLoRA training.
@@ -42,7 +36,7 @@ training:
   run_name: qwen2.5-3b-trump-style-qlora
   wandb_project: trump-style-qlora
   max_seq_length: 2048
-  num_epochs: 3
+  num_epochs: 5
   per_device_batch_size: 2
   gradient_accumulation_steps: 4
   learning_rate: 0.0003
@@ -51,28 +45,36 @@ training:
   lora_alpha: 32
   dataset_num_proc: 4
   eval_fraction: 0.1
-  eval_steps: 33
-  save_steps: 33
-  logging_steps: 5
+  eval_steps: 50
+  save_steps: 50
+  save_total_limit: 3
+  logging_steps: 10
+  early_stopping_patience: 4
+  early_stopping_threshold: 0.0
   report_to:
     - tensorboard
     - wandb
 
-# Hugging Face repositories for each published output format.
+# Hugging Face repositories for publishable output formats. This config only
+# uploads the GGUF repo by default.
 publishing:
   adapter_repo: tsilva/qwen2.5-3b-trump-style-qlora-v1
   merged_repo: tsilva/qwen2.5-3b-trump-style-merged-v1
   gguf_repo: tsilva/qwen2.5-3b-trump-style-gguf-v1
   onnx_repo: tsilva/qwen2.5-3b-trump-style-onnx-v1
 
-# Optional export formats produced after training. GGUF supports local inference
-# runtimes; ONNX enables graph-based deployment flows.
+# Optional export formats produced after training. Keep only Q4_K_M GGUF enabled
+# for the standard publishing path.
 exports:
+  adapter:
+    enabled: false
+  merged:
+    enabled: false
   gguf:
     quantization_methods:
       - q4_k_m
   onnx:
-    enabled: true
+    enabled: false
     task: text-generation-with-past
 
 # Remote execution settings used by the generated Runbook job.
