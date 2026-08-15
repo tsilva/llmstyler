@@ -15,7 +15,6 @@ from llmstyler.pipeline import STATUS_FILENAME, compose_pipeline_config
 from llmstyler.restyle import estimate_restyle_cost
 from llmstyler.standards import slugify
 
-
 DEFAULT_REWRITE_PROMPT = """You rewrite assistant responses for a supervised fine-tuning dataset.
 
 Task:

@@ -12,7 +12,6 @@ from llmstyler.mix import build_mix
 from llmstyler.restyle import restyle
 from llmstyler.runbook import make_runbook
 
-
 STEP_CONFIG_FILENAMES = {
     "base_mix": "base_mix.yaml",
     "restyle": "restyle.yaml",
