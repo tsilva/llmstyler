@@ -19,9 +19,8 @@ model exports.
 ```bash
 git clone https://github.com/tsilva/llmstyler.git
 cd llmstyler
-python3 -m venv .venv
+uv sync --config-file uv.toml --frozen --all-extras
 source .venv/bin/activate
-uv pip install -e ".[dev]"
 ```
 
 Run the CLI from the repo root:
