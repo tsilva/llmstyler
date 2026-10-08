@@ -666,7 +666,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.14.3" },
-    { name = "datasets", specifier = ">=3.0.0" },
+    { name = "datasets", specifier = ">=5.0.1" },
     { name = "huggingface-hub", specifier = ">=0.26.0" },
     { name = "idna", specifier = ">=3.15" },
     { name = "omegaconf", specifier = ">=2.3.0" },
