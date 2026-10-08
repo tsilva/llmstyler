@@ -1,8 +1,10 @@
-<div align="center">
+<p align="center">
   <img src="./logo.png" alt="llmstyler logo" width="412" />
-
-  **🧵 Change how your LLM talks 🧵**
-</div>
+  <br />
+  <!-- repo-tagline:start -->
+  <strong>🧵 Change how your LLM talks 🧵</strong>
+  <!-- repo-tagline:end -->
+</p>
 
 llmstyler is a Python CLI for building speaking-style supervised fine-tuning
 datasets and publishing the resulting model artifacts. It starts with YAML
