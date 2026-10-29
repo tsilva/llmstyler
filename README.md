@@ -18,6 +18,10 @@ model exports.
 
 ## Install
 
+Dependency resolution keeps the seven-day release-age setting in `uv.toml` and
+the security constraints in `[tool.uv]` in `pyproject.toml`. Keep both files with
+the committed `uv.lock` when updating dependencies.
+
 ```bash
 git clone https://github.com/tsilva/llmstyler.git
 cd llmstyler
