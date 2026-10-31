@@ -1,0 +1,184 @@
+id: warm-direct-smoke
+name: Warm Direct Smoke
+version: v1
+owner: tsilva
+output_dir: runs/warm-direct-smoke
+style_contract:
+  id: warm-direct
+  system_prompt: You are a helpful assistant that answers in the configured speaking
+    style.
+model:
+  base_model: unsloth/Qwen2.5-0.5B-Instruct-bnb-4bit
+  load_in_4bit: true
+  default_system_prompt: You are Qwen, created by Alibaba Cloud. You are a helpful
+    assistant.
+training:
+  output_dir: outputs/warm-direct-smoke
+  run_name: warm-direct-smoke-qlora
+  wandb_project: warm-direct-smoke-qlora
+  max_seq_length: 4096
+  num_epochs: 1
+  per_device_batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0003
+  warmup_ratio: 0.05
+  lora_r: 8
+  lora_alpha: 16
+  dataset_num_proc: 4
+  eval_fraction: 0.1
+  eval_steps: 33
+  save_steps: 33
+  logging_steps: 5
+  report_to:
+  - tensorboard
+publishing:
+  adapter_repo: ${owner}/${id}-qlora-${version}
+  merged_repo: ${owner}/${id}-merged-${version}
+  gguf_repo: ${owner}/${id}-gguf-${version}
+  onnx_repo: ${owner}/${id}-onnx-${version}
+exports:
+  adapter:
+    enabled: false
+  merged:
+    enabled: false
+  gguf:
+    quantization_methods:
+    - q4_k_m
+  onnx:
+    enabled: false
+    task: text-generation-with-past
+runbook:
+  output_dir: ${output_dir}
+  runtime:
+    image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+    gpu: A10
+    cpu: 8.0
+    memory: 49152
+    timeout: 14400
+  modal:
+    secrets:
+    - wandb-secret
+    - huggingface-secret
+base_mix:
+  id: warm-direct-smoke_base_mix
+  name: Warm Direct Smoke Base Mix
+  version: ${version}
+  seed: 3407
+  buffer_size: 128
+  split:
+    test_size: 0.1
+  tagging:
+  - rate: 0.5
+    output_splits:
+    - train
+    balance_by:
+    - bucket
+    tags:
+      restyle: true
+  source:
+    dataset_id: HuggingFaceTB/smoltalk2
+    config: SFT
+    revision: fc6cc2103c066455aade5d7fbb346039ae36ca5e
+  plan:
+  - name: capability_magpie
+    split: smoltalk_smollm3_smol_magpie_ultra_no_think
+    count: 19
+  - name: capability_rewrite
+    split: smoltalk_smollm3_smol_rewrite_no_think
+    count: 10
+  - name: capability_summarize
+    split: smoltalk_smollm3_smol_summarize_no_think
+    count: 6
+  - name: capability_instruction_following
+    split: tulu_3_sft_personas_instruction_following_no_think
+    count: 6
+  - name: capability_science
+    split: Mixture_of_Thoughts_science_no_think
+    count: 3
+  - name: restyle_magpie
+    split: smoltalk_smollm3_smol_magpie_ultra_no_think
+    count: 12
+  - name: restyle_rewrite
+    split: smoltalk_smollm3_smol_rewrite_no_think
+    count: 4
+  - name: restyle_summarize
+    split: smoltalk_smollm3_smol_summarize_no_think
+    count: 4
+  output:
+    store_dir: .datamixxer/mixes
+    dir: datasets/warm-direct-smoke_base
+    train_file: train.jsonl
+    test_file: test.jsonl
+    push_to_hub: false
+    hub:
+      repo_id: ${owner}/${id}-base-${version}
+restyle:
+  id: ${style_contract.id}
+  version: ${version}
+  seed: 3407
+  env_file: .env
+  dataset:
+    input_path: ${base_mix.output.dir}/${base_mix.output.train_file}
+    hub_repo_id: ${base_mix.output.hub.repo_id}
+  style:
+    id: ${style_contract.id}
+    provider: agentbridge
+    base_url: http://127.0.0.1:8082/api/v1
+    model: codex/gpt-6.1-sol
+    reasoning_effort: high
+    temperature: 0.7
+    max_tokens: 4096
+    workers: 1
+    retries: 3
+    retry_sleep: 2.0
+    request_timeout: 630.0
+    context_mode: full-history
+    output_expansion: 1.25
+    rewrite_prompt: 'You rewrite assistant responses for a supervised fine-tuning
+      dataset.
+
+
+      Task:
+
+      - Preserve the same factual content, meaning, accuracy, caveats, and user-facing
+      usefulness.
+
+      - Rewrite only the assistant response in the requested speaking style.
+
+      - Do not claim to be a real person.
+
+      - Do not add new factual claims, named entities, accusations, dates, numbers,
+      or policy positions.
+
+      - Do not remove important facts, safety caveats, reasoning steps, or conclusions.
+
+      - Keep the same language as the original response.
+
+      - Keep lists, math, code, citations, and structured outputs intact when they
+      carry meaning.
+
+      - Return only valid JSON matching {"restyled_content": "..."}.'
+  output:
+    dir: datasets/warm-direct-smoke_styled
+    train_file: train.jsonl
+    checkpoint_file: checkpoint.jsonl
+    push_to_hub: false
+    hub:
+      repo_id: ${owner}/${id}-styled-${version}
+runstep:
+  id: ${id}
+  name: ${name}
+  version: ${version}
+  style:
+    id: ${style_contract.id}
+    system_prompt: ''
+  dataset:
+    hub_repo_id: ${restyle.output.hub.repo_id}
+    split: train
+    restyled_only: false
+  model: ${model}
+  training: ${training}
+  publishing: ${publishing}
+  exports: ${exports}
+  runbook: ${runbook}
+style_pack: ../../styles/warm-direct.yaml

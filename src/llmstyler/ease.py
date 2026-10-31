@@ -4,16 +4,27 @@ import json
 import os
 import shutil
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from llmstyler.agent import agent_mode, open_local, reject_agent_operation
 from llmstyler.io import load_env_file, read_yaml
+from llmstyler.llm import (
+    DEFAULT_BASE_URL,
+    DEFAULT_MODEL,
+    DEFAULT_PROVIDER,
+    DEFAULT_REASONING_EFFORT,
+    resolve_llm_settings,
+)
 from llmstyler.pipeline import STATUS_FILENAME, compose_pipeline_config
 from llmstyler.restyle import estimate_restyle_cost
 from llmstyler.standards import slugify
+from llmstyler.styles import load_style_pack
 
 DEFAULT_REWRITE_PROMPT = """You rewrite assistant responses for a supervised fine-tuning dataset.
 
@@ -56,14 +67,22 @@ def create_pipeline_config(
     version: str = "v1",
     base_model: str = "unsloth/Qwen2.5-3B-Instruct-bnb-4bit",
     style_id: str | None = None,
+    style_pack: str | Path | None = None,
     style_prompt: str | None = None,
     style_prompt_file: str | Path | None = None,
     rows: int = 1000,
     restyle_rate: float = 0.2,
     force: bool = False,
 ) -> Path:
+    if style_pack and (style_prompt or style_prompt_file or style_id):
+        raise ValueError("--style-pack supplies the style id and prompts; omit other style flags")
+    if not 0 <= restyle_rate <= 1:
+        raise ValueError("restyle_rate must be between 0 and 1")
+    if rows < len(BASE_PLAN):
+        raise ValueError(f"rows must be at least {len(BASE_PLAN)} for the default mix")
     pipeline_slug = slugify(pipeline_id)
-    style_slug = slugify(style_id or pipeline_slug)
+    pack = load_style_pack(style_pack) if style_pack else None
+    style_slug = pack["id"] if pack else slugify(style_id or pipeline_slug)
     resolved_name = name or pipeline_slug.replace("-", " ").replace("_", " ").title()
     prompt = _style_prompt(style_prompt=style_prompt, style_prompt_file=style_prompt_file)
     config = _pipeline_template(
@@ -78,6 +97,10 @@ def create_pipeline_config(
         restyle_rate=restyle_rate,
     )
     destination = Path(output_path or f"configs/pipelines/{pipeline_slug}.yaml")
+    if style_pack:
+        config["style_pack"] = os.path.relpath(
+            Path(style_pack).resolve(), destination.parent.resolve()
+        )
     if destination.exists() and not force:
         raise FileExistsError(f"{destination} already exists; pass --force to overwrite it")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -111,10 +134,10 @@ def run_doctor(
         _check_import("datasets", "datasets import is available"),
         _check_import("huggingface_hub", "huggingface_hub import is available"),
         _check_executable("datamixxer", "required for base mix generation"),
-        _check_executable("runbook", "required for remote training launch") if run else Check(
-            "runbook", True, "skipped because --no-run was passed"
-        ),
-        _check_openrouter(),
+        _check_executable("runbook", "required for remote training launch")
+        if run
+        else Check("runbook", True, "skipped because --no-run was passed"),
+        _check_llm(config.get("restyle", {}).get("style", {}) if config else {}),
     ]
     if publish or _pipeline_wants_publish(config):
         checks.append(_check_hugging_face_auth())
@@ -292,7 +315,7 @@ def _pipeline_template(
                 {
                     "rate": restyle_rate,
                     "output_splits": ["train"],
-                    "balance_by": ["source"],
+                    "balance_by": ["bucket"],
                     "tags": {"restyle": True},
                 }
             ],
@@ -318,16 +341,18 @@ def _pipeline_template(
             },
             "style": {
                 "id": "${style_contract.id}",
-                "model": "x-ai/grok-4.3",
+                "provider": DEFAULT_PROVIDER,
+                "base_url": DEFAULT_BASE_URL,
+                "model": DEFAULT_MODEL,
+                "reasoning_effort": DEFAULT_REASONING_EFFORT,
                 "temperature": 0.7,
                 "max_tokens": 4096,
-                "workers": 8,
+                "workers": 1,
                 "retries": 3,
                 "retry_sleep": 2.0,
-                "request_timeout": 90.0,
+                "request_timeout": 630.0,
                 "context_mode": "latest-user",
                 "output_expansion": 1.25,
-                "pricing_usd_per_1m": {"input": 1.25, "output": 2.50},
                 "rewrite_prompt": rewrite_prompt,
             },
             "output": {
@@ -344,7 +369,7 @@ def _pipeline_template(
             "version": "${version}",
             "style": {
                 "id": "${style_contract.id}",
-                "system_prompt": "${style_contract.system_prompt}",
+                "system_prompt": "",
             },
             "dataset": {
                 "hub_repo_id": "${restyle.output.hub.repo_id}",
@@ -396,17 +421,21 @@ def _check_executable(name: str, detail: str) -> Check:
     return Check(name, path is not None, path or detail)
 
 
-def _check_openrouter() -> Check:
-    value = os.environ.get("OPENROUTER_API_KEY")
-    return Check(
-        "OPENROUTER_API_KEY",
-        bool(value),
-        "configured" if value else "missing; required for restyle runs",
-    )
+def _check_llm(style: dict[str, Any]) -> Check:
+    try:
+        settings = resolve_llm_settings(style)
+        url = settings["base_url"] + "/models"
+        opener = open_local if agent_mode() else urllib.request.urlopen
+        with opener(url, timeout=5) as response:
+            json.load(response)
+        return Check("AgentBridge", True, f"{url}; model {settings['model']}")
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        return Check("AgentBridge", False, str(exc))
 
 
 def _check_hugging_face_auth() -> Check:
     try:
+        reject_agent_operation("Hugging Face authentication")
         from huggingface_hub import HfApi
 
         whoami = HfApi().whoami()

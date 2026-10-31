@@ -1,6 +1,6 @@
 # Restyles the rows marked `restyle: true` in the base mix into a Trump-like
 # public-speaking register. The command `llmstyler restyle` reads the base mix,
-# sends selected assistant responses to the configured OpenRouter model, writes
+# sends selected assistant responses to the configured AgentBridge model, writes
 # a new JSONL dataset, and leaves non-restyled rows available for capability
 # preservation during training.
 
@@ -9,7 +9,7 @@ id: trump_like_public_speaking
 version: v1
 seed: 3407
 
-# Environment file used for secrets such as OPENROUTER_API_KEY.
+# Optional environment file; AgentBridge Codex needs no OpenRouter key.
 env_file: .env
 
 # Source base mix. The local input path is used when present; the Hub repo is a
@@ -18,30 +18,30 @@ dataset:
   input_path: datasets/basemix_restyle/train.jsonl
   hub_repo_id: tsilva/smoltalk_style_mix-v1
 
-# OpenRouter rewrite settings and the style contract. These values control cost,
+# AgentBridge rewrite settings and the style contract. These values control cost,
 # concurrency, retries, response length, and how assistant messages are rewritten.
 style:
   id: trump_like_public_speaking
-  model: x-ai/grok-4.3
+  provider: agentbridge
+  base_url: http://127.0.0.1:8082/api/v1
+  model: codex/gpt-6.1-sol
+  reasoning_effort: high
 
   # Generation behavior for each rewritten assistant response.
   temperature: 0.7
   max_tokens: 4096
 
   # Batch execution and failure handling.
-  workers: 8
+  workers: 1
   retries: 3
   retry_sleep: 2.0
-  request_timeout: 90.0
+  request_timeout: 630.0
 
   # Use only the latest user message as prompt context for the rewrite request.
   context_mode: latest-user
 
   # Cost estimator allowance for styled prose becoming longer than the original.
   output_expansion: 1.25
-  pricing_usd_per_1m:
-    input: 1.25
-    output: 2.50
 
   # The model must preserve meaning and return a strict JSON object so the
   # restyler can extract only the replacement assistant content.

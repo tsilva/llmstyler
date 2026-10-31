@@ -7,6 +7,8 @@ from typing import Any
 
 import yaml
 
+from llmstyler.agent import agent_mode
+
 
 def read_yaml(path: str | Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as handle:
@@ -59,6 +61,8 @@ def deep_copy_json(value: Any) -> Any:
 
 
 def load_env_file(path: str | Path | None) -> None:
+    if agent_mode():
+        return
     if path is None:
         return
     env_path = Path(path)

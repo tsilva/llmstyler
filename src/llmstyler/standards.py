@@ -249,6 +249,8 @@ def styled_dataset_card(
                 [
                     ["Style id", style["id"]],
                     ["Rewrite model", style["model"]],
+                    ["Provider", "agentbridge"],
+                    ["Reasoning effort", style.get("reasoning_effort", "provider default")],
                     ["Context mode", style.get("context_mode", "latest-user")],
                     ["Temperature", style.get("temperature", 0.7)],
                     ["Max tokens", style.get("max_tokens", 4096)],
@@ -267,7 +269,11 @@ def styled_dataset_card(
                     ["Assistant rewrite calls", manifest["assistant_calls"]],
                     [
                         "Estimated cost USD",
-                        f"{manifest['estimated_cost']['estimated_total_cost_usd']:.6f}",
+                        (
+                            f"{manifest['estimated_cost']['estimated_total_cost_usd']:.6f}"
+                            if manifest["estimated_cost"]["estimated_total_cost_usd"] is not None
+                            else "unknown (no per-token pricing configured)"
+                        ),
                     ],
                     ["Prompt tokens used", manifest["actual_usage"].get("prompt_tokens", 0)],
                     [
@@ -283,7 +289,10 @@ def styled_dataset_card(
             markdown_table(
                 ["File", "Description"],
                 [
-                    ["train.jsonl", "Final training rows with selected assistant messages restyled."],
+                    [
+                        "train.jsonl",
+                        "Final training rows with selected assistant messages restyled.",
+                    ],
                     ["checkpoint.jsonl", "Per-message rewrite checkpoint for resumability."],
                     ["preview.json", "Side-by-side original/restyled assistant previews."],
                     ["manifest.json", "Machine-readable generation metadata."],
@@ -423,8 +432,14 @@ def model_card_template(config: dict[str, Any], version: str) -> str:
             markdown_table(
                 ["Artifact", "Repo"],
                 [
-                    ["QLoRA adapter", publishing.get("adapter_repo") if adapter_enabled else "disabled"],
-                    ["Merged 16-bit model", publishing.get("merged_repo") if merged_enabled else "disabled"],
+                    [
+                        "QLoRA adapter",
+                        publishing.get("adapter_repo") if adapter_enabled else "disabled",
+                    ],
+                    [
+                        "Merged 16-bit model",
+                        publishing.get("merged_repo") if merged_enabled else "disabled",
+                    ],
                     ["GGUF", publishing.get("gguf_repo") or "disabled"],
                     ["ONNX", publishing.get("onnx_repo") if onnx_enabled else "disabled"],
                 ],

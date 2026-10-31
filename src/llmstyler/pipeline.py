@@ -8,9 +8,11 @@ from typing import Any
 
 import yaml
 
+from llmstyler.llm import resolve_llm_settings
 from llmstyler.mix import build_mix
 from llmstyler.restyle import restyle
 from llmstyler.runbook import make_runbook
+from llmstyler.styles import load_style_pack, rewrite_prompt, system_prompt
 
 STEP_CONFIG_FILENAMES = {
     "base_mix": "base_mix.yaml",
@@ -32,13 +34,23 @@ def compose_pipeline_config(config_path: str | Path, overrides: list[str]) -> di
 
     config = OmegaConf.load(config_path)
     override_config = OmegaConf.from_dotlist(overrides)
+    config = OmegaConf.merge(config, override_config)
+    if config.get("style_pack"):
+        pack_path = Path(config_path).resolve().parent / str(config["style_pack"])
+        pack = load_style_pack(pack_path)
+        config["style_contract"] = {"id": pack["id"], "system_prompt": system_prompt(pack)}
+        config["restyle"]["style"]["id"] = pack["id"]
+        config["restyle"]["style"]["rewrite_prompt"] = rewrite_prompt(pack)
+        config["runstep"]["style"]["id"] = pack["id"]
     resolved = OmegaConf.to_container(
-        OmegaConf.merge(config, override_config),
+        config,
         resolve=True,
         throw_on_missing=True,
     )
     if not isinstance(resolved, dict):
         raise ValueError(f"{config_path} must resolve to a YAML object")
+    if "restyle" in resolved:
+        resolved["restyle"]["style"] = resolve_llm_settings(resolved["restyle"]["style"])
     return resolved
 
 
@@ -87,7 +99,9 @@ def train_style(
         return
 
     base_mix_hash = _step_hash("base_mix", base_mix_config)
-    if _step_complete(status, "base_mix", base_mix_hash, _base_mix_artifacts(base_mix_config), force):
+    if _step_complete(
+        status, "base_mix", base_mix_hash, _base_mix_artifacts(base_mix_config), force
+    ):
         print("Skipping base mix; inputs unchanged and artifacts exist")
     else:
         print("Building base mix")

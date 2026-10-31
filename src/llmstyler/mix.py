@@ -6,11 +6,13 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from llmstyler.agent import reject_agent_operation
 from llmstyler.io import read_yaml
 
 
 def build_mix(config_path: str | Path, *, push: bool | None = None, force: bool = False) -> Path:
     """Build a base dataset mix through datamixxer and mirror it for llmstyler."""
+    reject_agent_operation("External datamixxer execution")
     if shutil.which("datamixxer") is None:
         raise RuntimeError(
             "datamixxer CLI is required for `llmstyler build-mix`. Install it from "
@@ -35,18 +37,20 @@ def build_mix(config_path: str | Path, *, push: bool | None = None, force: bool 
 
 
 def datamixxer_artifact_dir(config_path: str | Path) -> Path:
+    reject_agent_operation("External datamixxer execution")
     result = subprocess.run(
-        ["datamixxer", "show", str(config_path)],
+        ["datamixxer", "show", str(config_path), "--json"],
         check=True,
         capture_output=True,
         text=True,
     )
-    for line in result.stdout.splitlines():
-        if line.startswith("path: "):
-            return Path(line.removeprefix("path: ").strip())
-        if line.startswith("Artifact: "):
-            return Path(line.removeprefix("Artifact: ").strip())
-    raise RuntimeError("datamixxer did not report an artifact path for " + str(config_path))
+    reference = json.loads(result.stdout)
+    if reference.get("schema_version") != 1 or not reference.get("built"):
+        raise RuntimeError("datamixxer did not report a built artifact for " + str(config_path))
+    path = reference.get("path")
+    if not isinstance(path, str) or not path:
+        raise RuntimeError("datamixxer artifact reference is missing its path")
+    return Path(path)
 
 
 def mirror_output_dir(config: dict[str, Any]) -> Path | None:

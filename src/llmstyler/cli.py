@@ -4,15 +4,49 @@ import argparse
 import sys
 
 from llmstyler.ease import create_pipeline_config, estimate_config, inspect_config, run_doctor
+from llmstyler.llm import (
+    DEFAULT_MODEL,
+    DEFAULT_REASONING_EFFORT,
+    REASONING_EFFORTS,
+)
 from llmstyler.mix import build_mix
 from llmstyler.pipeline import train_style
 from llmstyler.restyle import restyle
 from llmstyler.runbook import make_runbook
+from llmstyler.studio import export_studio
+from llmstyler.styles import chat_style, preview_style
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="llmstyler")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    preview = subparsers.add_parser("preview", help="Try a portable style pack")
+    preview.add_argument("--style", required=True, help="Style pack YAML path")
+    preview.add_argument("--prompt", default="Why is the sky blue?")
+    preview.add_argument(
+        "--compile-only", action="store_true", help="Print messages without an API call"
+    )
+
+    chat = subparsers.add_parser("chat", help="Chat using a portable style pack")
+    chat.add_argument("--style", required=True, help="Style pack YAML path")
+    for command in (preview, chat):
+        command.add_argument(
+            "--model", default=DEFAULT_MODEL, help=f"Model id (default: {DEFAULT_MODEL})"
+        )
+        command.add_argument(
+            "--base-url", help="AgentBridge API base URL (default: http://127.0.0.1:8082/api/v1)"
+        )
+        command.add_argument(
+            "--reasoning-effort", choices=REASONING_EFFORTS, default=DEFAULT_REASONING_EFFORT
+        )
+
+    studio = subparsers.add_parser(
+        "export-studio", help="Export training and held-out data for Studio"
+    )
+    studio.add_argument("config", help="Pipeline config")
+    studio.add_argument("--output-dir", help="New directory for the Studio bundle")
+    studio.add_argument("--max-rows", type=int, help="Limit training rows for a smoke test")
 
     new = subparsers.add_parser("new", help="Create a complete style pipeline config")
     new.add_argument("id", help="Pipeline id, used for local paths and artifact names")
@@ -26,6 +60,7 @@ def main() -> None:
         help="Base instruct model for the training step",
     )
     new.add_argument("--style-id", default=None)
+    new.add_argument("--style-pack", help="Portable style pack YAML path")
     new.add_argument(
         "--style-prompt",
         default=None,
@@ -104,7 +139,25 @@ def main() -> None:
     elif unknown_args:
         parser.error("unrecognized arguments: " + " ".join(unknown_args))
 
-    if args.command == "new":
+    if args.command == "preview":
+        preview_style(
+            args.style,
+            prompt=args.prompt,
+            model=args.model,
+            base_url=args.base_url,
+            reasoning_effort=args.reasoning_effort,
+            compile_only=args.compile_only,
+        )
+    elif args.command == "chat":
+        chat_style(
+            args.style,
+            model=args.model,
+            base_url=args.base_url,
+            reasoning_effort=args.reasoning_effort,
+        )
+    elif args.command == "export-studio":
+        export_studio(args.config, output_dir=args.output_dir, max_rows=args.max_rows)
+    elif args.command == "new":
         create_pipeline_config(
             pipeline_id=args.id,
             owner=args.owner,
@@ -113,6 +166,7 @@ def main() -> None:
             version=args.version,
             base_model=args.base_model,
             style_id=args.style_id,
+            style_pack=args.style_pack,
             style_prompt=args.style_prompt,
             style_prompt_file=args.style_prompt_file,
             rows=args.rows,

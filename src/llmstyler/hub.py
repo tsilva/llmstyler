@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from llmstyler.agent import reject_agent_operation
+
 
 def repo_url(repo_id: str, repo_type: str) -> str:
     path_prefix = "" if repo_type == "model" else f"{repo_type}s/"
@@ -9,6 +11,7 @@ def repo_url(repo_id: str, repo_type: str) -> str:
 
 
 def _api():
+    reject_agent_operation("Hugging Face publishing")
     try:
         from huggingface_hub import HfApi
     except ImportError as exc:

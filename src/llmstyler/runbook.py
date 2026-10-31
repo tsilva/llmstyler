@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from llmstyler.agent import reject_agent_operation
 from llmstyler.io import read_yaml
 from llmstyler.standards import artifact_version, model_card_template
 
@@ -542,6 +543,7 @@ def run_generated_runbook(
     run_dir: Path,
     run_output: str | Path | None = None,
 ) -> None:
+    reject_agent_operation("Remote Runbook training")
     if shutil.which("runbook") is None:
         raise RuntimeError(
             "runbook CLI is required to launch training. Install it first from "

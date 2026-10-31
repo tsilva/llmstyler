@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import concurrent.futures
 import dataclasses
+import hashlib
 import json
 import math
-import os
 import random
 import subprocess
 import sys
@@ -12,6 +12,12 @@ import time
 from pathlib import Path
 from typing import Any
 
+from llmstyler.agent import (
+    AgentModeError,
+    agent_environment,
+    agent_mode,
+    reject_agent_operation,
+)
 from llmstyler.hub import preflight_upload, upload_folder
 from llmstyler.io import (
     append_jsonl,
@@ -22,6 +28,7 @@ from llmstyler.io import (
     write_json,
     write_jsonl,
 )
+from llmstyler.llm import provider_api_key, resolve_llm_settings
 from llmstyler.standards import (
     artifact_version,
     now_iso,
@@ -29,12 +36,12 @@ from llmstyler.standards import (
     styled_dataset_card,
 )
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 TOKEN_CHARS = 4
 
-OPENROUTER_CHILD_CODE = r"""
+AGENTBRIDGE_CHILD_CODE = r"""
 import json
 import sys
+import urllib.error
 import urllib.request
 
 request = json.loads(sys.stdin.read())
@@ -44,8 +51,29 @@ http_request = urllib.request.Request(
     headers=request["headers"],
     method="POST",
 )
-with urllib.request.urlopen(http_request, timeout=request["timeout"]) as response:
-    sys.stdout.write(response.read().decode("utf-8"))
+try:
+    with urllib.request.urlopen(http_request, timeout=request["timeout"]) as response:
+        sys.stdout.write(response.read().decode("utf-8"))
+except urllib.error.HTTPError as error:
+    message = str(error.reason)
+    try:
+        body = json.loads(error.read().decode("utf-8"))
+        message = str(body.get("error", {}).get("message", message))
+    except (ValueError, AttributeError, UnicodeDecodeError):
+        pass
+    authorization = request["headers"].get("Authorization", "")
+    secret = authorization.removeprefix("Bearer ")
+    if secret:
+        message = message.replace(secret, "[redacted]")
+    sys.stderr.write(f"HTTP {error.code}: {message[:500]}")
+    sys.exit(1)
+except (urllib.error.URLError, TimeoutError) as error:
+    message = str(getattr(error, "reason", error))
+    secret = request["headers"].get("Authorization", "").removeprefix("Bearer ")
+    if secret:
+        message = message.replace(secret, "[redacted]")
+    sys.stderr.write(f"Connection failed: {message[:500]}")
+    sys.exit(1)
 """
 
 
@@ -65,6 +93,7 @@ class RestyleResult:
     original: str
     restyled: str
     usage: dict[str, Any]
+    style_hash: str | None = None
 
 
 def assistant_indexes(row: dict[str, Any]) -> list[int]:
@@ -105,7 +134,9 @@ def selected_row_indexes(rows: list[dict[str, Any]], sample: int | None, seed: i
     if sample is None:
         return set(candidates)
     if sample > len(candidates):
-        raise ValueError(f"requested {sample} samples but only found {len(candidates)} restyle rows")
+        raise ValueError(
+            f"requested {sample} samples but only found {len(candidates)} restyle rows"
+        )
     return set(random.Random(seed).sample(candidates, sample))
 
 
@@ -180,8 +211,8 @@ def iter_targets(
 
 def estimate_cost(targets: list[RestyleTarget], style: dict[str, Any]) -> dict[str, Any]:
     pricing = style.get("pricing_usd_per_1m", {})
-    input_rate = float(pricing.get("input", 0.0))
-    output_rate = float(pricing.get("output", 0.0))
+    input_rate = float(pricing["input"]) if "input" in pricing else None
+    output_rate = float(pricing["output"]) if "output" in pricing else None
     output_expansion = float(style.get("output_expansion", 1.25))
     input_tokens = math.ceil(sum(target.input_chars for target in targets) / TOKEN_CHARS)
     output_tokens = math.ceil(
@@ -193,39 +224,71 @@ def estimate_cost(targets: list[RestyleTarget], style: dict[str, Any]) -> dict[s
         "estimated_output_tokens": output_tokens,
         "input_usd_per_1m": input_rate,
         "output_usd_per_1m": output_rate,
-        "estimated_total_cost_usd": input_tokens / 1_000_000 * input_rate
-        + output_tokens / 1_000_000 * output_rate,
+        "estimated_total_cost_usd": (
+            input_tokens / 1_000_000 * input_rate + output_tokens / 1_000_000 * output_rate
+            if input_rate is not None and output_rate is not None
+            else None
+        ),
         "token_estimate_method": f"ceil(characters / {TOKEN_CHARS})",
     }
 
 
-def openrouter_chat(api_key: str, style: dict[str, Any], messages: list[dict[str, str]]):
+def chat_completion(
+    style: dict[str, Any],
+    messages: list[dict[str, str]],
+    *,
+    api_key: str | None = None,
+    json_mode: bool = True,
+):
+    style = resolve_llm_settings(style)
+    agent_request = agent_mode()
+    if agent_request and api_key:
+        raise AgentModeError("Agent mode does not accept explicit application API keys.")
+    if api_key is None:
+        api_key = provider_api_key(style)
     payload = {
         "model": style["model"],
         "messages": messages,
         "temperature": float(style.get("temperature", 0.7)),
         "max_tokens": int(style.get("max_tokens", 4096)),
-        "response_format": {"type": "json_object"},
     }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": style.get("http_referer", "https://github.com/tsilva/llmstyler"),
-        "X-Title": style.get("title", "llmstyler"),
-    }
+    if style.get("reasoning_effort") is not None:
+        payload["reasoning_effort"] = style["reasoning_effort"]
+    if json_mode:
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "style_rewrite",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {"restyled_content": {"type": "string"}},
+                    "required": ["restyled_content"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     retries = int(style.get("retries", 3))
     retry_sleep = float(style.get("retry_sleep", 2.0))
     timeout = float(style.get("request_timeout", 90.0))
+    url = style["base_url"] + "/chat/completions"
     last_error: Exception | None = None
     for attempt in range(retries + 1):
         try:
             completed = subprocess.run(
-                [sys.executable, "-c", OPENROUTER_CHILD_CODE],
-                input=json.dumps({"url": OPENROUTER_URL, "payload": payload, "headers": headers, "timeout": timeout}),
+                ([sys.executable, "-m", "llmstyler.agent"]
+                 if agent_request else [sys.executable, "-c", AGENTBRIDGE_CHILD_CODE]),
+                input=json.dumps(
+                    {"url": url, "payload": payload, "headers": headers, "timeout": timeout}
+                ),
                 text=True,
                 capture_output=True,
                 timeout=timeout + 5,
                 check=True,
+                **({"env": agent_environment()} if agent_request else {}),
             )
             parsed = json.loads(completed.stdout)
             return parsed["choices"][0]["message"]["content"], parsed.get("usage", {})
@@ -246,7 +309,7 @@ def openrouter_chat(api_key: str, style: dict[str, Any], messages: list[dict[str
             if attempt >= retries:
                 break
             time.sleep(retry_sleep * (2**attempt))
-    raise RuntimeError(f"OpenRouter request failed: {last_error}") from last_error
+    raise RuntimeError(f"agentbridge request failed: {last_error}") from last_error
 
 
 def parse_restyle_response(content: str) -> str:
@@ -267,6 +330,7 @@ def result_to_json(result: RestyleResult) -> dict[str, Any]:
         "original": result.original,
         "restyled": result.restyled,
         "usage": result.usage,
+        "style_hash": result.style_hash,
     }
 
 
@@ -277,6 +341,7 @@ def result_from_json(row: dict[str, Any]) -> RestyleResult:
         original=str(row["original"]),
         restyled=str(row["restyled"]),
         usage=row.get("usage", {}),
+        style_hash=row.get("style_hash"),
     )
 
 
@@ -292,20 +357,39 @@ def load_checkpoint(path: Path) -> dict[tuple[int, int], RestyleResult]:
 def compatible_checkpoint_rewrites(
     checkpoint: dict[tuple[int, int], RestyleResult],
     targets: list[RestyleTarget],
+    style_hash: str,
 ) -> tuple[dict[tuple[int, int], RestyleResult], int]:
-    target_by_key = {
-        (target.row_index, target.assistant_index): target
-        for target in targets
-    }
+    target_by_key = {(target.row_index, target.assistant_index): target for target in targets}
     rewrites: dict[tuple[int, int], RestyleResult] = {}
     ignored = 0
     for key, result in checkpoint.items():
         target = target_by_key.get(key)
-        if target is None or result.original != target.original_content:
+        if (
+            target is None
+            or result.original != target.original_content
+            or result.style_hash != style_hash
+        ):
             ignored += 1
             continue
         rewrites[key] = result
     return rewrites, ignored
+
+
+def rewrite_style_hash(style: dict[str, Any]) -> str:
+    style = resolve_llm_settings(style)
+    generation = {
+        "id": style["id"],
+        "model": style["model"],
+        "provider": style["provider"],
+        "base_url": style["base_url"],
+        "reasoning_effort": style.get("reasoning_effort"),
+        "rewrite_prompt": style["rewrite_prompt"],
+        "context_mode": style.get("context_mode", "latest-user"),
+        "temperature": float(style.get("temperature", 0.7)),
+        "max_tokens": int(style.get("max_tokens", 4096)),
+    }
+    payload = json.dumps(generation, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def restyle_one(
@@ -314,8 +398,7 @@ def restyle_one(
     messages = row.get("messages")
     if not isinstance(messages, list):
         raise ValueError(f"row {target.row_index}: messages must be a list")
-    response, usage = openrouter_chat(
-        api_key,
+    response, usage = chat_completion(
         style,
         build_openrouter_messages(
             style=style,
@@ -324,6 +407,7 @@ def restyle_one(
             original_content=target.original_content,
             context_mode=style.get("context_mode", "latest-user"),
         ),
+        api_key=api_key,
     )
     return RestyleResult(
         row_index=target.row_index,
@@ -331,6 +415,7 @@ def restyle_one(
         original=target.original_content,
         restyled=parse_restyle_response(response),
         usage=usage,
+        style_hash=rewrite_style_hash(style),
     )
 
 
@@ -378,10 +463,12 @@ def estimate_restyle_cost(config: dict[str, Any]) -> dict[str, Any]:
     return cost
 
 
-def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool | None = None) -> None:
+def restyle(
+    config_path: str | Path, *, estimate_only: bool = False, push: bool | None = None
+) -> None:
     config = read_yaml(config_path)
     load_env_file(config.get("env_file", ".env"))
-    style = config["style"]
+    style = config["style"] = resolve_llm_settings(config["style"])
     dataset = config["dataset"]
     output = config["output"]
     version = artifact_version(config)
@@ -395,9 +482,7 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
     if should_push and not estimate_only:
         hub = output["hub"]
         preflight_upload(
-            repo_id=standard_repo_id(
-                hub, fallback_name=f"{style['id']}-dataset", version=version
-            ),
+            repo_id=standard_repo_id(hub, fallback_name=f"{style['id']}-dataset", version=version),
             repo_type="dataset",
             private=bool(hub.get("private", False)),
         )
@@ -413,23 +498,21 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
     print(json.dumps(cost, indent=2, ensure_ascii=False))
     if estimate_only:
         return
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is required")
+    api_key = provider_api_key(style)
 
     output_dir = Path(output["dir"])
     checkpoint_path = output_dir / output.get("checkpoint_file", "checkpoint.jsonl")
     checkpoint = load_checkpoint(checkpoint_path)
-    rewrites, ignored_checkpoint = compatible_checkpoint_rewrites(checkpoint, targets)
+    rewrites, ignored_checkpoint = compatible_checkpoint_rewrites(
+        checkpoint, targets, rewrite_style_hash(style)
+    )
     if ignored_checkpoint:
         print(
             f"Ignoring {ignored_checkpoint} stale checkpoint rewrite(s) for this run",
             file=sys.stderr,
         )
     missing = [
-        target
-        for target in targets
-        if (target.row_index, target.assistant_index) not in rewrites
+        target for target in targets if (target.row_index, target.assistant_index) not in rewrites
     ]
     workers = int(style.get("workers", 8))
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
@@ -444,8 +527,7 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
                 result = future.result()
             except Exception as exc:
                 print(
-                    "failed "
-                    f"{target.row_index}/{target.assistant_index}: {exc}",
+                    f"failed {target.row_index}/{target.assistant_index}: {exc}",
                     file=sys.stderr,
                 )
                 continue
@@ -455,9 +537,7 @@ def restyle(config_path: str | Path, *, estimate_only: bool = False, push: bool 
             print(f"restyled {completed}/{len(targets)} assistant messages", file=sys.stderr)
 
     missing_after = [
-        target
-        for target in targets
-        if (target.row_index, target.assistant_index) not in rewrites
+        target for target in targets if (target.row_index, target.assistant_index) not in rewrites
     ]
     if missing_after:
         preview = ", ".join(
@@ -513,6 +593,7 @@ def load_source_rows(dataset: dict[str, Any]) -> list[dict[str, Any]]:
         raise FileNotFoundError(
             f"{input_path!r} does not exist and dataset.hub_repo_id is not configured"
         )
+    reject_agent_operation("Hugging Face dataset access")
     from datasets import load_dataset
 
     split = dataset.get("split", "train")
