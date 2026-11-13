@@ -38,9 +38,8 @@ def agent_mode(monkeypatch):
     monkeypatch.setenv(agent.MODE_VARIABLE, agent.MODE)
 
 
-@pytest.mark.parametrize("script", ["agent.py", "infisical.py"])
-def test_launch_is_keyless_and_never_calls_a_secret_manager(script, monkeypatch):
-    spec = importlib.util.spec_from_file_location("agent_launcher", ROOT / "scripts" / script)
+def test_launch_is_keyless_and_never_calls_a_secret_manager(monkeypatch):
+    spec = importlib.util.spec_from_file_location("agent_launcher", ROOT / "scripts" / "agent.py")
     launcher = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(launcher)
     for name in (

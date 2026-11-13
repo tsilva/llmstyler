@@ -1,6 +1,6 @@
 > Current agent boundary: `experiments/studio_smoke.py` and the retired direct-OpenRouter
 > judge return fail-closed diagnostics. They do not read owner storage, mint sessions
-> or retrieve Infisical values. Use Studio's human sign-in flow. The trusted
+> or retrieve service credentials. Use Studio's human sign-in flow. The trusted
 > application server bridge remains an operator deployment, not an agent credential broker.
 
 # First style-tuning experiment

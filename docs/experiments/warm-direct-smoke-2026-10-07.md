@@ -1,8 +1,6 @@
-> Historical experiment record. The former root Infisical binding is preserved as
-> `docs/legacy-infisical-metadata.json`; its key retrieval flow is retired. Current
-> agent work uses the explicit keyless local entrypoint documented in README.md.
-> The commands below record the earlier run and do not authorize live credential
-> access, publishing, session creation or training.
+> Historical experiment record. Commands describe the retired original setup,
+> not current operating instructions. Application arguments below omit the
+> retired credential launcher.
 
 # Warm-direct smoke experiment — October 7, 2026
 
@@ -14,9 +12,8 @@ base and prompt-only responses. The adapter is saved locally; nothing was
 published. This small run verifies the integration but does not establish a
 reliable improvement in style or answer quality.
 
-Credentials now come from the dedicated `llmstyler` Infisical project,
-Development (`dev`), root folder (`/`). Its new OpenRouter key was validated
-and read back, with a $10 total limit. Reported rewriting cost was $0.18359;
+An experiment-specific OpenRouter credential had a $10 total limit.
+Reported rewriting cost was $0.18359;
 total key usage after rewriting and fidelity screening was $0.28475.
 
 ## Data and fidelity
@@ -93,7 +90,7 @@ and checkpoints remain under `datasets/`. The reviewed training SHA256 is
 `0f8bab487f100d90918530b77b47cf44dd104be129f8f2d68712bd7155542634`.
 
 ```bash
-python3 scripts/infisical.py run run configs/pipelines/warm-direct-smoke.yaml --no-run \
+llmstyler run configs/pipelines/warm-direct-smoke.yaml --no-run \
   restyle.style.provider=openrouter restyle.style.model=x-ai/grok-4.3 \
   restyle.style.base_url=http://127.0.0.1:8082/api/v1 \
   restyle.style.reasoning_effort=null restyle.style.request_timeout=90 \

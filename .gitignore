@@ -56,3 +56,4 @@ logs/
 .vscode/
 /INBOX.md
 /.local/repo-inbox/
+/.internal/
