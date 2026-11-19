@@ -2,7 +2,6 @@
 import hashlib
 import io
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -40,12 +39,6 @@ def test_nested_environment_retains_only_reviewed_session_and_no_service_keys(na
     for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
         assert env[key] == native
     assert env["NO_PROXY"] == env["no_proxy"] == ""
-    calls = []
-    monkeypatch.setattr(agent.os, "chdir", lambda _path: None)
-    monkeypatch.setattr(agent.os, "execve", lambda *args: calls.append(args))
-    agent.launch(["run", "preview", "--compile-only"], root=Path("/synthetic"))
-    assert calls[0][1] == [sys.executable, "-m", "llmstyler.cli", "preview", "--compile-only"]
-    assert calls[0][2]["HTTPS_PROXY"] == native
 
 
 @pytest.mark.parametrize("key,value", [
@@ -88,11 +81,12 @@ def test_native_proxy_is_used_by_the_existing_opener(native, monkeypatch):
 
 
 @pytest.mark.parametrize("body,ok", [(b'{"data":[]}', True), (b'{"private":"fake-private-value"}', False)])
-def test_live_check_returns_only_sanitized_catalog_result(native, monkeypatch, capsys, body, ok):
+def test_live_check_does_not_print_catalog_or_provider_details(native, monkeypatch, capsys, body, ok):
     monkeypatch.setattr(agent, "open_local", lambda *_a, **_k: io.BytesIO(body))
     if ok:
-        agent.launch(["vault-check"], root=Path("/unused"))
+        agent.verify_catalog()
     else:
-        with pytest.raises(agent.AgentModeError, match="details withheld"):
-            agent.launch(["vault-check"], root=Path("/unused"))
-    assert "fake-private-value" not in capsys.readouterr().out
+        with pytest.raises(agent.AgentModeError, match="Native Vault catalog check failed.") as error:
+            agent.verify_catalog()
+        assert "fake-private-value" not in str(error.value)
+    assert capsys.readouterr() == ("", "")

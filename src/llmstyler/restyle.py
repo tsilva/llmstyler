@@ -279,8 +279,11 @@ def chat_completion(
     for attempt in range(retries + 1):
         try:
             completed = subprocess.run(
-                ([sys.executable, "-m", "llmstyler.agent"]
-                 if agent_request else [sys.executable, "-c", AGENTBRIDGE_CHILD_CODE]),
+                (
+                    [sys.executable, "-I", "-S", "-B", str(Path(__file__).with_name("agent.py"))]
+                    if agent_request
+                    else [sys.executable, "-c", AGENTBRIDGE_CHILD_CODE]
+                ),
                 input=json.dumps(
                     {"url": url, "payload": payload, "headers": headers, "timeout": timeout}
                 ),

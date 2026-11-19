@@ -1,6 +1,7 @@
 # Agent operation
 
-The local policy check is `python scripts/agent.py check`; it contacts no service.
+Use `runbox --profile service run -- llmstyler ...` for AgentBridge commands.
+The offline approval check is `runbox --profile service check`.
 Preserve the keyless agent mode's request restrictions and fail-closed behavior.
 
 Agent mode uses the existing keyless AgentBridge destination
@@ -29,7 +30,7 @@ Preserve the frozen dependency graph and seven-day release hold. Relevant CI use
 Python 3.11 and 3.14, Ruff, pytest, the full locked dependency audit, offline CLI
 and import checks, and `uv build`. Keep validation outputs outside the checkout
 and omit local dotenv, credentials, private datasets and run outputs from test
-copies. Use fake transport tests first. The documented native `vault-check` may
+copies. Use fake transport tests first. `runbox --profile service check --online` may
 perform one bounded gateway catalog GET without inference. Do not call real
 inference, Hub, W&B, Modal or Studio to validate this boundary. Update README.md
 when changing the agent entrypoint or its behavior.

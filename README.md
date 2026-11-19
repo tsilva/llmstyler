@@ -35,33 +35,6 @@ Run the CLI from the repo root:
 llmstyler --help
 ```
 
-## Agent-operated local mode
-
-The keyless agent entrypoint has a local policy check that needs no service:
-
-```bash
-uv run --frozen python scripts/agent.py check
-```
-
-This mode permits only `http://127.0.0.1:8082/api/v1` and its chat/models routes.
-It strips inherited service credentials and unreviewed proxy settings, ignores dotenv files,
-and rejects authentication headers, endpoint overrides and redirects. Models,
-prompts and rewrite-cache behavior are unchanged. It does not provide OS isolation.
-The ordinary `llmstyler` CLI and SDK retain their operator authentication and
-custom-endpoint contracts outside this explicit mode.
-
-In native mode, only the validated Vault proxy capability is preserved into
-the actual HTTP child. The dedicated pass-through route needs no application
-key or token broker. Missing/invalid native settings stop without direct fallback.
-
-Hugging Face access/publishing, external datamixxer execution and remote Runbook
-training fail closed in agent mode until their transports have separately reviewed
-credential routes. The native catalog check verifies only the local gateway;
-upstream authentication and real inference are not established by that check.
-Studio owner-session and direct-OpenRouter smoke scripts now return explicit
-diagnostics; use Studio's existing human sign-in flow. Trusted Studio server
-authentication remains separate.
-
 ## Simplest workflow
 
 Try a portable voice before generating a dataset. The packs in `styles/` contain
